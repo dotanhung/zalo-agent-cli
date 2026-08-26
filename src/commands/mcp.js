@@ -110,6 +110,7 @@ export function registerMCPCommands(program) {
             const notifier = new ZaloNotifier(getApi(), config);
 
             let reconnectCount = 0;
+            let shuttingDown = false;
 
             /**
              * Attach Zalo listener handlers to the current API instance.
@@ -150,10 +151,13 @@ export function registerMCPCommands(program) {
                 });
 
                 api.listener.on("disconnected", (code) => {
+                    if (shuttingDown) return;
                     console.error(`[mcp] Disconnected (code: ${code}). Auto-retrying...`);
                 });
 
                 api.listener.on("closed", async (code) => {
+                    // Ctrl+C stops the listener, which fires this event — don't re-login.
+                    if (shuttingDown) return;
                     if (code === CLOSE_DUPLICATE) {
                         console.error("[mcp] Duplicate Zalo Web session detected. Exiting.");
                         process.exit(1);
@@ -204,7 +208,8 @@ export function registerMCPCommands(program) {
             }
 
             // Graceful shutdown on SIGINT
-            process.on("SIGINT", () => {
+            process.once("SIGINT", () => {
+                shuttingDown = true;
                 try {
                     getApi().listener.stop();
                 } catch {}

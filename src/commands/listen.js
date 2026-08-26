@@ -49,6 +49,7 @@ export function registerListenCommand(program) {
             const startTime = Date.now();
             let reconnectCount = 0;
             let eventCount = 0;
+            let shuttingDown = false;
             const enabledEvents = new Set(opts.events.split(",").map((e) => e.trim()));
 
             function uptime() {
@@ -217,10 +218,13 @@ export function registerListenCommand(program) {
                 });
 
                 api.listener.on("disconnected", (code, _reason) => {
+                    if (shuttingDown) return;
                     warning(`Disconnected (code: ${code}). Auto-retrying...`);
                 });
 
                 api.listener.on("closed", async (code, _reason) => {
+                    // Ctrl+C stops the listener, which fires this event — don't re-login.
+                    if (shuttingDown) return;
                     if (code === CLOSE_DUPLICATE) {
                         error("Another Zalo Web session opened. Listener stopped.");
                         process.exit(1);
@@ -278,7 +282,8 @@ export function registerListenCommand(program) {
 
             // Keep alive until Ctrl+C
             await new Promise((resolve) => {
-                process.on("SIGINT", () => {
+                process.once("SIGINT", () => {
+                    shuttingDown = true;
                     try {
                         getApi().listener.stop();
                     } catch (e) {
@@ -287,6 +292,8 @@ export function registerListenCommand(program) {
                     info(`Stopped. Uptime: ${uptime()}, events: ${eventCount}, reconnects: ${reconnectCount}`);
                     if (saveDir) info(`Messages saved to: ${saveDir}`);
                     resolve();
+                    // Listener + pending timers keep the event loop alive — force exit.
+                    process.exit(0);
                 });
             });
         });
