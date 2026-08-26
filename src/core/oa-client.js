@@ -8,11 +8,24 @@ import fs from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import nodefetch from "node-fetch";
+import { buildUploadForm, MAX_FILE_BYTES, MAX_IMAGE_BYTES } from "../utils/upload-helpers.js";
 
 const V3_BASE = "https://openapi.zalo.me/v3.0/oa";
 const V2_BASE = "https://openapi.zalo.me/v2.0/oa";
+
 const DATA_DIR = join(homedir(), ".zalo-agent");
 const OA_CREDS_FILE = join(DATA_DIR, "oa-credentials.json");
+
+/**
+ * Swappable HTTP client. Production always uses node-fetch; tests inject a stub
+ * to assert on the outgoing request without touching the network.
+ */
+let httpClient = nodefetch;
+
+/** Replace the HTTP client. Test seam — not part of the public CLI surface. */
+export function setHttpClient(fn) {
+    httpClient = fn || nodefetch;
+}
 
 /** Ensure data directory exists. */
 function ensureDir() {
@@ -70,7 +83,7 @@ export function getOAuthUrl(appId, redirectUri = "http://localhost:3456/callback
 
 /** Exchange authorization code for access + refresh tokens. */
 export async function exchangeCode(code, appId, secretKey, redirectUri = "http://localhost:3456/callback") {
-    const res = await nodefetch(TOKEN_URL, {
+    const res = await httpClient(TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", secret_key: secretKey },
         body: new URLSearchParams({
@@ -85,7 +98,7 @@ export async function exchangeCode(code, appId, secretKey, redirectUri = "http:/
 
 /** Refresh access token using refresh token. */
 export async function refreshAccessToken(refreshToken, appId, secretKey) {
-    const res = await nodefetch(TOKEN_URL, {
+    const res = await httpClient(TOKEN_URL, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", secret_key: secretKey },
         body: new URLSearchParams({
@@ -106,8 +119,17 @@ async function oaFetch(url, { method = "GET", body, token, isFormData = false } 
     if (body && !isFormData) opts.body = JSON.stringify(body);
     if (body && isFormData) opts.body = body;
 
-    const res = await nodefetch(url, opts);
-    const data = await res.json();
+    const res = await httpClient(url, opts);
+    const raw = await res.text();
+
+    let data;
+    try {
+        data = JSON.parse(raw);
+    } catch {
+        // Upload endpoints answer with HTML/plain text on 4xx/5xx — surface that instead of a parse error.
+        throw new Error(`OA API returned non-JSON response (HTTP ${res.status}): ${raw.slice(0, 200)}`);
+    }
+
     if (data.error && data.error !== 0) {
         throw new Error(`OA API error ${data.error}: ${data.message || JSON.stringify(data)}`);
     }
@@ -161,6 +183,8 @@ export async function sendImage(userId, { imageUrl, imageId }, messageType = "cs
 
 /** Send file message via OA (requires pre-uploaded file attachment_id). */
 export async function sendFile(userId, fileId, messageType = "cs", oaId = "default") {
+    if (!fileId)
+        throw new Error("Missing file token. Upload the file first, or use: oa msg file <user-id> --file <path>");
     const token = getToken(oaId);
     return oaFetch(`${V3_BASE}/message/${validateMsgType(messageType)}`, {
         method: "POST",
@@ -268,16 +292,15 @@ export async function removeFollowerFromTag(userId, tagName, oaId = "default") {
 
 // ─── Media Upload ────────────────────────────────────────────────────
 
-/** Upload image to OA (returns attachment_id). */
+/**
+ * Upload image to OA (returns attachment_id).
+ * Uploads live on v2.0 — Zalo publishes no v3.0 upload endpoint.
+ */
 export async function uploadImage(filePath, oaId = "default") {
     const token = getToken(oaId);
-    // Use native FormData-like via node-fetch's Blob
-    const fileData = fs.readFileSync(filePath);
-    const blob = new (await import("node:buffer")).Blob([fileData]);
-    const form = new globalThis.FormData();
-    form.append("file", blob, filePath.split("/").pop());
+    const form = buildUploadForm(filePath, { maxBytes: MAX_IMAGE_BYTES, label: "Image" });
 
-    return oaFetch(`${V3_BASE}/upload/image`, {
+    return oaFetch(`${V2_BASE}/upload/image`, {
         method: "POST",
         token,
         body: form,
@@ -285,20 +308,52 @@ export async function uploadImage(filePath, oaId = "default") {
     });
 }
 
-/** Upload file to OA (returns token/attachment_id). */
+/** Upload file to OA (returns a token usable with sendFile). */
 export async function uploadFile(filePath, oaId = "default") {
     const token = getToken(oaId);
-    const fileData = fs.readFileSync(filePath);
-    const blob = new (await import("node:buffer")).Blob([fileData]);
-    const form = new globalThis.FormData();
-    form.append("file", blob, filePath.split("/").pop());
+    const form = buildUploadForm(filePath, { maxBytes: MAX_FILE_BYTES, label: "File" });
 
-    return oaFetch(`${V3_BASE}/upload/file`, {
+    return oaFetch(`${V2_BASE}/upload/file`, {
         method: "POST",
         token,
         body: form,
         isFormData: true,
     });
+}
+
+/** Extract the attachment token from an upload/file response. */
+export function extractUploadToken(result) {
+    return result?.data?.token || result?.token || null;
+}
+
+/** Extract the attachment_id from an upload/image response. */
+export function extractAttachmentId(result) {
+    return result?.data?.attachment_id || result?.attachment_id || null;
+}
+
+/**
+ * Upload a local file and send it to a follower in one step.
+ *
+ * If the send fails after the upload succeeded, the error carries the already
+ * uploaded `fileToken` so the caller can retry delivery without re-uploading.
+ */
+export async function uploadAndSendFile(userId, filePath, messageType = "cs", oaId = "default") {
+    const upload = await uploadFile(filePath, oaId);
+    const fileToken = extractUploadToken(upload);
+    if (!fileToken) {
+        throw new Error(`Upload succeeded but returned no file token: ${JSON.stringify(upload)}`);
+    }
+
+    let result;
+    try {
+        result = await sendFile(userId, fileToken, messageType, oaId);
+    } catch (e) {
+        // The upload is already paid for — most send failures (wrong user id, expired
+        // CS window, rate limit) are retriable with this same token.
+        e.fileToken = fileToken;
+        throw e;
+    }
+    return { upload, fileToken, result };
 }
 
 // ─── Conversations ───────────────────────────────────────────────────
