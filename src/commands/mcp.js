@@ -7,9 +7,11 @@
 
 import { getApi, autoLogin, clearSession } from "../core/zalo-client.js";
 import { MessageBuffer } from "../mcp/message-buffer.js";
+import { HistoryStore } from "../mcp/history-store.js";
+import { reconnectDelay } from "../mcp/reconnect.js";
 import { ThreadFilter } from "../mcp/thread-filter.js";
 import { loadMCPConfig, parseDuration } from "../mcp/mcp-config.js";
-import { extractMessageText } from "../utils/extract-message-text.js";
+import { normalizeMessage, toHistoryMessage } from "../mcp/message-normalize.js";
 import { createMCPServer } from "../mcp/mcp-server.js";
 import { registerTools } from "../mcp/mcp-tools.js";
 import { createHTTPServer } from "../mcp/mcp-http-transport.js";
@@ -20,34 +22,9 @@ import { autoDownloadMedia, isDownloadableMedia } from "../mcp/media-downloader.
 /** Zalo close code for duplicate web session — fatal, do not retry */
 const CLOSE_DUPLICATE = 3000;
 
-/**
- * Normalize a raw zca-js message event into the buffer's message shape.
- * @param {object} msg - Raw zca-js message event
- * @returns {object} Normalized message
- */
-function normalizeMessage(msg) {
-    const rawContent = msg.data.content;
-    const isText = typeof rawContent === "string";
-    return {
-        id: msg.data.msgId,
-        threadId: msg.threadId,
-        threadType: msg.type === 0 ? "dm" : "group",
-        senderId: msg.data.uidFrom || null,
-        senderName: msg.data.dName || null,
-        text: isText ? rawContent : extractMessageText(rawContent, msg.data.msgType),
-        timestamp: Date.now(),
-        type: isText ? "text" : msg.data.msgType || "attachment",
-        attachment:
-            !isText && rawContent
-                ? {
-                      type: msg.data.msgType,
-                      url: rawContent.href || null,
-                      description: rawContent.title || null,
-                  }
-                : null,
-        replyTo: null,
-    };
-}
+/** Reconnect backoff tuning. */
+const STABLE_CONNECTION_MS = 60 * 1000; // a connection lasting this long is "healthy"
+const THRASH_WARN_AT = 3; // consecutive rapid closes before warning about multi-session conflict
 
 export function registerMCPCommands(program) {
     const mcp = program.command("mcp").description("MCP server for AI agent integration");
@@ -77,6 +54,11 @@ export function registerMCPCommands(program) {
             const buffer = new MessageBuffer(maxSize, maxAge);
             const filter = new ThreadFilter(config);
 
+            // History store — seeded from old-message backfill at (re)connect, grows with live messages.
+            const historyStore = new HistoryStore(config.limits?.historyMaxPerThread ?? 2000);
+            const backfillPages = config.limits?.historyBackfillPages ?? 5;
+            const backfillPageTimeout = parseDuration(config.limits?.historyBackfillPageTimeout ?? "8s");
+
             // Build thread name cache (groups + friends → in-memory index)
             const nameCache = new ThreadNameCache();
             try {
@@ -94,12 +76,12 @@ export function registerMCPCommands(program) {
                         console.error(`[mcp] Invalid port: ${opts.http}. Must be 1-65535.`);
                         process.exit(1);
                     }
-                    const deps = { api: getApi(), buffer, filter, config, nameCache };
+                    const deps = { api: getApi(), buffer, filter, config, nameCache, historyStore };
                     const authToken = opts.auth?.trim() || null;
                     httpServer = createHTTPServer(registerTools, deps, port, authToken, opts.host || "127.0.0.1");
                     console.error(`[mcp] HTTP server started on port ${port}`);
                 } else {
-                    await createMCPServer(getApi(), buffer, filter, config, nameCache);
+                    await createMCPServer(getApi(), buffer, filter, config, nameCache, historyStore);
                 }
             } catch (e) {
                 console.error("[mcp] Failed to start MCP server:", e.message);
@@ -111,6 +93,95 @@ export function registerMCPCommands(program) {
 
             let reconnectCount = 0;
             let shuttingDown = false;
+            let backfillGeneration = 0; // bumped each connect; older in-flight backfills bail when superseded
+            let lastConnectedAt = 0; // ms timestamp of the last successful connect (0 = not connected)
+            let rapidCloses = 0; // consecutive closes that happened before the connection was stable
+            let warnedMultiSession = false; // one-shot guard for the multi-session warning
+
+            /**
+             * Fetch old messages for one thread type via the WebSocket backfill (cmd 510/511),
+             * paginating up to `maxPages`, and ingest them into the history store.
+             *
+             * Zalo only replays old messages during a connection's sync window, so this MUST run
+             * right after "connected" (not lazily on demand — that returns empty on a live socket).
+             * @param {object} api - zca-js API instance
+             * @param {number} threadType - 0=User(DM), 1=Group
+             * @param {number} gen - Backfill generation; the run bails if a newer connect supersedes it
+             * @returns {Promise<number>} Count of messages ingested
+             */
+            async function backfillHistory(api, threadType, gen) {
+                let cursor = null;
+                let ingested = 0;
+                for (let page = 0; page < backfillPages; page++) {
+                    if (gen !== backfillGeneration) break; // superseded by a newer connect
+                    const batch = await new Promise((resolve) => {
+                        const handler = (messages, type) => {
+                            if (type !== threadType) return; // wait for our thread type
+                            clearTimeout(timer);
+                            api.listener.removeListener("old_messages", handler);
+                            resolve(Array.isArray(messages) ? messages : []);
+                        };
+                        const timer = setTimeout(() => {
+                            api.listener.removeListener("old_messages", handler);
+                            resolve([]);
+                        }, backfillPageTimeout);
+                        api.listener.on("old_messages", handler);
+                        try {
+                            api.listener.requestOldMessages(threadType, cursor);
+                        } catch {
+                            clearTimeout(timer);
+                            api.listener.removeListener("old_messages", handler);
+                            resolve([]);
+                        }
+                    });
+
+                    if (gen !== backfillGeneration) break; // superseded while awaiting this page
+                    if (batch.length === 0) break;
+
+                    // Backfill batches span all threads of this type — group by threadId.
+                    const byThread = new Map();
+                    for (const raw of batch) {
+                        const hm = toHistoryMessage(raw);
+                        if (!hm.threadId || !hm.msgId) continue;
+                        if (!byThread.has(hm.threadId)) byThread.set(hm.threadId, []);
+                        byThread.get(hm.threadId).push(hm);
+                    }
+                    for (const [tid, msgs] of byThread) ingested += historyStore.ingest(tid, msgs);
+
+                    // Cursor is a GLOBAL backfill cursor (last id of the whole batch across all
+                    // threads), not per-thread — that's how Zalo's requestOldMessages(lastId) paginates.
+                    const last = batch[batch.length - 1];
+                    const nextId = last?.data?.actionId || last?.data?.msgId;
+                    if (!nextId || String(nextId) === String(cursor)) break;
+                    cursor = nextId;
+                }
+                return ingested;
+            }
+
+            /**
+             * Seed the history store from the backfill right after (re)connect.
+             *
+             * Each connect supersedes any older in-flight backfill (which may still be looping
+             * against a now-dead socket): we bump the generation and start a fresh run immediately,
+             * so the new connection's sync window — the only time Zalo replays old messages — is
+             * never skipped. The stale run bails on its next generation check.
+             * Runs DM then Group sequentially to avoid old_messages cross-talk; failures are non-fatal.
+             * @param {object} api - zca-js API instance
+             */
+            async function primeHistoryOnConnect(api) {
+                const gen = ++backfillGeneration;
+                try {
+                    const dm = await backfillHistory(api, 0, gen);
+                    const group = await backfillHistory(api, 1, gen);
+                    if (gen === backfillGeneration) {
+                        console.error(
+                            `[mcp] History backfill: ${dm} DM + ${group} group message(s) across ${historyStore.threadIds().length} thread(s)`,
+                        );
+                    }
+                } catch (e) {
+                    console.error("[mcp] History backfill failed (non-fatal):", e.message);
+                }
+            }
 
             /**
              * Attach Zalo listener handlers to the current API instance.
@@ -119,7 +190,15 @@ export function registerMCPCommands(program) {
              */
             function attachListenerHandlers(api) {
                 api.listener.on("message", (msg) => {
-                    // Skip self-sent messages
+                    // Record into history first (complete view: includes self, real timestamps)
+                    try {
+                        const hm = toHistoryMessage(msg);
+                        if (hm.threadId && hm.msgId) historyStore.ingest(hm.threadId, [hm]);
+                    } catch {
+                        // Non-fatal — history ingest must never break live handling
+                    }
+
+                    // Skip self-sent messages for the live agent buffer
                     if (msg.isSelf) return;
 
                     const normalized = normalizeMessage(msg);
@@ -148,6 +227,9 @@ export function registerMCPCommands(program) {
                     if (reconnectCount > 0) {
                         console.error(`[mcp] Reconnected (#${reconnectCount})`);
                     }
+                    lastConnectedAt = Date.now();
+                    // Seed history from the server backfill while inside the sync window.
+                    primeHistoryOnConnect(api);
                 });
 
                 api.listener.on("disconnected", (code) => {
@@ -163,10 +245,37 @@ export function registerMCPCommands(program) {
                         process.exit(1);
                     }
                     reconnectCount++;
+
+                    // Thrash detection. A connection that dies quickly after connecting usually
+                    // means another Zalo web session is evicting us — Zalo signals this with a
+                    // plain code-1000 close, not the 3000 duplicate frame. Back off exponentially
+                    // instead of hammering every 5s, but never give up: this self-heals if the
+                    // rival session goes away.
+                    const uptime = lastConnectedAt ? Date.now() - lastConnectedAt : 0;
+                    if (lastConnectedAt && uptime >= STABLE_CONNECTION_MS) {
+                        rapidCloses = 0; // a healthy connection dropped — normal reconnect
+                        warnedMultiSession = false;
+                    } else {
+                        rapidCloses++;
+                    }
+                    lastConnectedAt = 0;
+
+                    const delay = reconnectDelay(rapidCloses);
+
+                    if (rapidCloses >= THRASH_WARN_AT && !warnedMultiSession) {
+                        warnedMultiSession = true;
+                        console.error(
+                            `[mcp] Rapid reconnects (code ${code}) — another Zalo web session is likely active. ` +
+                                "Run only ONE Claude client's Zalo MCP server at a time (Claude Code OR the desktop app); " +
+                                "the native Zalo app is fine. Backing off to avoid an eviction loop.",
+                        );
+                    }
+
                     console.error(
-                        `[mcp] Connection closed (code: ${code}). Re-login in 5s... (reconnect #${reconnectCount})`,
+                        `[mcp] Connection closed (code: ${code}). Re-login in ${Math.round(delay / 1000)}s... ` +
+                            `(reconnect #${reconnectCount}, rapid #${rapidCloses})`,
                     );
-                    await new Promise((r) => setTimeout(r, 5000));
+                    await new Promise((r) => setTimeout(r, delay));
                     try {
                         clearSession();
                         await autoLogin(false);
