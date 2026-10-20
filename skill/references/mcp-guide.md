@@ -249,6 +249,14 @@ Gửi tới thread ngoài danh sách sẽ trả lỗi `Send blocked: ...` và kh
 
 `watchThreads` giới hạn mọi thứ agent thấy: tin mới, lịch sử (`zalo_get_history`, `zalo_search_history`) và tìm thread (`zalo_search_threads`). File `mcp-config.json` hỏng (JSON sai) thì server không khởi động, thay vì mở hết quyền.
 
+### Chuyển tin sang Google Sheets (`forward`)
+
+```json
+{ "forward": { "url": "https://script.google.com/macros/s/.../exec", "token": "<bí mật>", "timeout": "10s" } }
+```
+
+Mỗi tin của thread thuộc `watchThreads` được POST `{ token, message }` tới `url` (chỉ https hoặc localhost). Script mẫu và hướng dẫn: `integrations/google-sheets/`.
+
 ---
 
 ## Kiến trúc

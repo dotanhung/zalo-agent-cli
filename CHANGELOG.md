@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **MCP: forward watched-thread messages to Google Sheets** — new `forward` section in `mcp-config.json` (`url`, `token`, `timeout`). Each live message from a thread allowed by `watchThreads` is POSTed (fire-and-forget, https or localhost only) to the endpoint; `integrations/google-sheets/Code.gs` is a ready Apps Script web app that appends one row per message (token check, duplicate skip, formula-injection guard). Setup guide: `integrations/google-sheets/README.md`.
 - **7-layer test workflow** — `npm run test:7` (`scripts/test-7-tang.sh`) runs static, unit/integration, CLI contract, security and packaging checks; project skill `.claude/skills/test-7-tang` adds manual checklists for live-account and operations testing. CI runs layers 3–5.
 - **MCP send guard** — `zalo_send_message` now only sends to threads matching `sendThreads` (falls back to `watchThreads`); other threads get `Send blocked` without hitting the Zalo API. New `readOnly: true` hides the send tool entirely. Every send attempt (sent / blocked / error) is appended to `~/.zalo-agent-cli/mcp-send-log.jsonl` (0600; configurable via `sendLog`, `false` to disable).
 

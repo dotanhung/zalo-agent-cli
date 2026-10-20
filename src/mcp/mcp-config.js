@@ -36,6 +36,11 @@ export function getDefaultConfig() {
             downloadDir: null, // default: ~/.zalo-agent-cli/media/
             autoOpen: true,
         },
+        forward: {
+            url: null, // POST each watched-thread message here (e.g. Google Apps Script web app); null = off
+            token: null, // shared secret included in the JSON body
+            timeout: "10s",
+        },
     };
 }
 
@@ -67,6 +72,7 @@ export function loadMCPConfig() {
         notify: { ...defaults.notify, ...saved.notify },
         limits: { ...defaults.limits, ...saved.limits },
         media: { ...defaults.media, ...saved.media },
+        forward: { ...defaults.forward, ...saved.forward },
     };
 }
 
