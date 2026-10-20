@@ -127,4 +127,20 @@ describe("MessageForwarder", () => {
         assert.equal(isForwardable(MSG), true);
         assert.equal(isForwardable({ ...MSG, type: "chat.undo" }), false);
     });
+
+    it("sendHeartbeat posts token + heartbeat with a timestamp", async () => {
+        let body;
+        const f = new MessageForwarder({ url: "https://x.test/hook", token: "t" }, async (_u, opts) => {
+            body = JSON.parse(opts.body);
+            return { ok: true, status: 200, text: async () => '{"ok":true,"heartbeat":true}' };
+        });
+        assert.equal(
+            await f.sendHeartbeat({ uptimeSec: 5, zaloConnected: true, lastConnectedAt: 1, reconnectCount: 0 }),
+            true,
+        );
+        assert.equal(body.token, "t");
+        assert.equal(body.heartbeat.zaloConnected, true);
+        assert.equal(typeof body.heartbeat.at, "number");
+        assert.equal(body.message, undefined);
+    });
 });

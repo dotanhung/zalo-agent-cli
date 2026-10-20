@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 
 const SRC = readFileSync(fileURLToPath(new URL("../../integrations/google-sheets/Code.gs", import.meta.url)), "utf-8");
 
-function load(token) {
+function load(token, { now = () => Date.now() } = {}) {
     const rows = [];
     const sheet = {
         appendRow: (r) => rows.push(r),
@@ -24,20 +24,44 @@ function load(token) {
             setValues: (vals) => vals.forEach((v) => rows.push(v)),
         }),
     };
-    let created = false;
+    const status = [];
+    const statusSheet = { getRange: () => ({ setValues: (v) => status.splice(0, status.length, ...v) }) };
+    const sheets = {};
+    const props = new Map(token ? [["TOKEN", token]] : []);
+    const mails = [];
+    const triggers = [];
     const ctx = {
+        Date: class extends Date {
+            static now() {
+                return now();
+            }
+        },
         SpreadsheetApp: {
             getActiveSpreadsheet: () => ({
                 getName: () => "ZALO LOG",
-                getSheetByName: () => (created ? sheet : null),
-                insertSheet: () => {
-                    created = true;
-                    return sheet;
-                },
+                getSheetByName: (n) => sheets[n] ?? null,
+                insertSheet: (n) => (sheets[n] = n === "Zalo" ? sheet : statusSheet),
             }),
         },
         LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
-        PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k === "TOKEN" ? token : null) }) },
+        PropertiesService: {
+            getScriptProperties: () => ({
+                getProperty: (k) => props.get(k) ?? null,
+                setProperty: (k, v) => props.set(k, v),
+                deleteProperty: (k) => props.delete(k),
+            }),
+        },
+        ScriptApp: {
+            getProjectTriggers: () => triggers,
+            deleteTrigger: (t) => triggers.splice(triggers.indexOf(t), 1),
+            newTrigger: (fn) => ({
+                timeBased: () => ({
+                    everyMinutes: () => ({ create: () => triggers.push({ getHandlerFunction: () => fn }) }),
+                }),
+            }),
+        },
+        MailApp: { sendEmail: (to, subject, body) => mails.push({ to, subject, body }) },
+        Session: { getEffectiveUser: () => ({ getEmail: () => "owner@example.com" }) },
         Utilities: {
             DigestAlgorithm: { SHA_256: "sha256" },
             Charset: { UTF_8: "utf8" },
@@ -53,7 +77,7 @@ function load(token) {
     vm.createContext(ctx);
     vm.runInContext(SRC, ctx);
     const post = (body) => ctx.doPost({ postData: { contents: JSON.stringify(body) } });
-    return { rows, post, get: () => ctx.doGet() };
+    return { rows, post, get: () => ctx.doGet(), ctx, status, mails, triggers, props };
 }
 
 const MSG = {
@@ -96,7 +120,7 @@ describe("Code.gs doPost", () => {
     it("doGet reports version, sheet and a fingerprint matching SHA-256 of the token", () => {
         const g = s.get();
         assert.equal(g.ok, true);
-        assert.equal(g.version, "3");
+        assert.equal(g.version, "4");
         assert.equal(g.spreadsheet, "ZALO LOG");
         assert.equal(g.tokenSet, true);
         assert.equal(g.tokenFingerprint, createHash("sha256").update("s3cret").digest("hex").slice(0, 8));
@@ -137,5 +161,52 @@ describe("Code.gs doPost", () => {
         const again = s.post({ token: "s3cret", messages: [MSG, { ...MSG, msgId: "m2" }] });
         assert.equal(again.added, 0);
         assert.equal(s.rows.length, 3);
+    });
+
+    it("stores a heartbeat without adding message rows and shows it on the status sheet", () => {
+        const r = s.post({ token: "s3cret", heartbeat: { uptimeSec: 3600, zaloConnected: true, reconnectCount: 1 } });
+        assert.deepEqual(r, { ok: true, heartbeat: true });
+        assert.equal(s.rows.length, 0);
+        assert.equal(s.status[1][1], "Có");
+        assert.equal(s.get().lastHeartbeat.zaloConnected, true);
+    });
+
+    it("rejects a heartbeat with a wrong token", () => {
+        assert.equal(s.post({ token: "nope", heartbeat: {} }).ok, false);
+        assert.equal(s.props.has("LAST_HEARTBEAT"), false);
+    });
+});
+
+describe("Code.gs watchdog", () => {
+    it("emails once when the service goes quiet, and once when it is back", () => {
+        let t = 1_000_000;
+        const w = load("s3cret", { now: () => t });
+        w.post({ token: "s3cret", heartbeat: { zaloConnected: true } });
+        assert.equal(w.ctx.checkHeartbeat(), null);
+        t += 31 * 60000; // 31 minutes of silence
+        assert.match(w.ctx.checkHeartbeat(), /31 phút/);
+        w.ctx.checkHeartbeat(); // still down: no second email
+        assert.equal(w.mails.length, 1);
+        assert.match(w.mails[0].subject, /có vấn đề/);
+        assert.equal(w.mails[0].to, "owner@example.com");
+        w.post({ token: "s3cret", heartbeat: { zaloConnected: true } });
+        assert.equal(w.ctx.checkHeartbeat(), null);
+        assert.equal(w.mails.length, 2);
+        assert.match(w.mails[1].subject, /hoạt động lại/);
+    });
+
+    it("alerts when the service runs but Zalo is disconnected", () => {
+        const w = load("s3cret");
+        w.post({ token: "s3cret", heartbeat: { zaloConnected: false } });
+        assert.match(w.ctx.checkHeartbeat(), /Zalo KHÔNG kết nối/);
+        assert.equal(w.mails.length, 1);
+    });
+
+    it("setupWatchdog creates exactly one 10-minute trigger, even when run twice", () => {
+        const w = load("s3cret");
+        w.ctx.setupWatchdog();
+        w.ctx.setupWatchdog();
+        assert.equal(w.triggers.length, 1);
+        assert.equal(w.get().watchdog, true);
     });
 });

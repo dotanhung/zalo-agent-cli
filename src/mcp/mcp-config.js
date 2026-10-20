@@ -40,6 +40,7 @@ export function getDefaultConfig() {
             url: null, // POST each watched-thread message here (e.g. Google Apps Script web app); null = off
             token: null, // shared secret included in the JSON body
             timeout: "10s",
+            heartbeat: "15m", // liveness beat to the same endpoint; "0" = off
         },
     };
 }

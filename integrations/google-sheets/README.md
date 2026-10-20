@@ -17,6 +17,16 @@ Cột: Thời gian · Nhóm · Mã nhóm · Người gửi · Mã người gửi
 Đổi mã sau này: chỉ sửa Thuộc tính tập lệnh `TOKEN` — **không** cần dán code hay triển khai lại.
 Sửa `Code.gs`: **Quản lý bản triển khai → ✏️ → Phiên bản mới**, URL giữ nguyên.
 
+## Cảnh báo bot chết (một lần, ~1 phút)
+
+Dịch vụ gửi **nhịp tim** mỗi 15 phút (`forward.heartbeat`, `"0"` = tắt) vào cùng địa chỉ; trang **Trạng thái**
+trong Sheet hiện lần cuối, Zalo có kết nối không, số lần kết nối lại.
+
+Bật email cảnh báo: trong Apps Script chọn hàm **setupWatchdog** ở thanh trên → **Chạy** → cấp quyền
+(gửi email, chạy theo lịch). Từ đó cứ 10 phút kiểm tra; **quá 30 phút** không có nhịp tim, hoặc Zalo mất kết nối
+→ email cho chủ Sheet; khi bot sống lại → email "đã hoạt động lại". Mỗi sự cố chỉ gửi một email.
+Trang kiểm tra (`doGet`) hiện `lastHeartbeat` và `watchdog: true` khi đã bật.
+
 ## 2. Khai báo trong mcp-config.json
 
 Mục `forward` gồm `url` (URL ứng dụng web) và `token` (mã bí mật).

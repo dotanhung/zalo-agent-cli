@@ -125,6 +125,18 @@ export function registerMCPCommands(program) {
                 process.exit(1);
             }
             runtime.forwarder = forwarder;
+            const heartbeatMs = parseDuration(config.forward?.heartbeat ?? "15m");
+            if (forwarder.enabled && heartbeatMs > 0) {
+                const beat = () =>
+                    forwarder.sendHeartbeat({
+                        uptimeSec: Math.floor(process.uptime()),
+                        zaloConnected: Boolean(runtime.lastConnectedAt),
+                        lastConnectedAt: runtime.lastConnectedAt || null,
+                        reconnectCount: runtime.reconnectCount,
+                    });
+                setTimeout(beat, 60_000).unref(); // first beat once the listener had time to connect
+                setInterval(beat, heartbeatMs).unref();
+            }
             if (forwarder.enabled)
                 console.error("[mcp] Forwarding watched messages to", new URL(config.forward.url).host);
 

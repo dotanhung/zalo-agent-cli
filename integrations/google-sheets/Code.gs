@@ -8,9 +8,13 @@
  * TOKEN phải trùng "forward.token" trong ~/.zalo-agent-cli/mcp-config.json.
  * Đổi mã sau này: chỉ sửa Thuộc tính tập lệnh, KHÔNG cần triển khai lại.
  * Mở URL ứng dụng web trên trình duyệt để xem trang kiểm tra (phiên bản, Sheet, vân tay mã).
+ * Cảnh báo bot chết (một lần): trong trình soạn thảo chọn hàm setupWatchdog → Chạy → cấp quyền.
+ * Từ đó cứ 10 phút kiểm tra; quá 30 phút không có nhịp tim (hoặc Zalo mất kết nối) → email cho anh.
  */
 
-const SCRIPT_VERSION = '3';
+const SCRIPT_VERSION = '4';
+const STATUS_SHEET = 'Trạng thái';
+const ALERT_AFTER_MIN = 30; // không thấy nhịp tim quá ngần này phút → email cảnh báo
 const SHEET_NAME = 'Zalo';
 const HEADERS = ['Thời gian', 'Nhóm', 'Mã nhóm', 'Người gửi', 'Mã người gửi', 'Nội dung', 'Loại', 'Mã tin'];
 
@@ -35,6 +39,8 @@ function doGet() {
     spreadsheet: SpreadsheetApp.getActiveSpreadsheet().getName(),
     tokenSet: t.length > 0,
     tokenFingerprint: fingerprint_(t),
+    lastHeartbeat: lastHeartbeat_(),
+    watchdog: ScriptApp.getProjectTriggers().some(function (tr) { return tr.getHandlerFunction() === 'checkHeartbeat'; }),
   });
 }
 
@@ -48,6 +54,10 @@ function doPost(e) {
   const expected = token_();
   if (!expected) return json_({ ok: false, error: 'TOKEN not set in Script Properties' });
   if (body.token !== expected) return json_({ ok: false, error: 'unauthorized' });
+  if (body.heartbeat) {
+    saveHeartbeat_(body.heartbeat);
+    return json_({ ok: true, heartbeat: true });
+  }
   // Một tin (tin mới đến) hoặc cả lô (ghi bù sau khi công cụ khởi động lại)
   const list = Array.isArray(body.messages) ? body.messages : body.message ? [body.message] : [];
   const valid = list.filter(function (m) { return m && m.msgId && m.threadId; });
@@ -117,4 +127,67 @@ function safe_(v) {
 
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/* ---------------- Nhịp tim & cảnh báo ---------------- */
+
+function lastHeartbeat_() {
+  const raw = PropertiesService.getScriptProperties().getProperty('LAST_HEARTBEAT');
+  return raw ? JSON.parse(raw) : null;
+}
+
+/** Lưu nhịp tim (chỉ các trường đã biết) và cập nhật trang "Trạng thái". */
+function saveHeartbeat_(hb) {
+  const beat = {
+    at: Number(hb.at) || Date.now(),
+    receivedAt: Date.now(),
+    uptimeSec: Number(hb.uptimeSec) || 0,
+    zaloConnected: hb.zaloConnected === true,
+    lastConnectedAt: Number(hb.lastConnectedAt) || null,
+    reconnectCount: Number(hb.reconnectCount) || 0,
+  };
+  PropertiesService.getScriptProperties().setProperty('LAST_HEARTBEAT', JSON.stringify(beat));
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(STATUS_SHEET) || ss.insertSheet(STATUS_SHEET);
+  sh.getRange(1, 1, 5, 2).setValues([
+    ['Nhịp tim gần nhất', new Date(beat.receivedAt)],
+    ['Zalo đang kết nối', beat.zaloConnected ? 'Có' : 'KHÔNG'],
+    ['Dịch vụ chạy liên tục (giờ)', Math.round(beat.uptimeSec / 360) / 10],
+    ['Số lần kết nối lại', beat.reconnectCount],
+    ['Cảnh báo khi im lặng quá (phút)', ALERT_AFTER_MIN],
+  ]);
+}
+
+/** Chạy theo lịch 10 phút: email khi bot im lặng / mất Zalo, và khi hoạt động lại. */
+function checkHeartbeat() {
+  const props = PropertiesService.getScriptProperties();
+  const hb = lastHeartbeat_();
+  const now = Date.now();
+  let problem = null;
+  if (!hb) problem = 'chưa nhận được nhịp tim nào từ dịch vụ Zalo';
+  else if (now - hb.receivedAt > ALERT_AFTER_MIN * 60000)
+    problem = 'không nhận được nhịp tim ' + Math.round((now - hb.receivedAt) / 60000) + ' phút (dịch vụ hoặc máy có thể đã tắt)';
+  else if (!hb.zaloConnected) problem = 'dịch vụ còn chạy nhưng Zalo KHÔNG kết nối';
+
+  const alerted = props.getProperty('ALERTED') === '1';
+  const sheetName = SpreadsheetApp.getActiveSpreadsheet().getName();
+  const to = Session.getEffectiveUser().getEmail();
+  if (problem && !alerted) {
+    MailApp.sendEmail(to, '[TQM Zalo Agent] Bot có vấn đề',
+      'Sheet "' + sheetName + '": ' + problem + '.\n\nKiểm tra trên máy: powershell -ExecutionPolicy Bypass -File G:\\07_TQM_ZALO_AGENT_RUNTIME\\scripts\\windows\\restart-service.ps1');
+    props.setProperty('ALERTED', '1');
+  } else if (!problem && alerted) {
+    MailApp.sendEmail(to, '[TQM Zalo Agent] Bot đã hoạt động lại', 'Sheet "' + sheetName + '": đã nhận lại nhịp tim, Zalo đang kết nối.');
+    props.deleteProperty('ALERTED');
+  }
+  return problem;
+}
+
+/** Chạy MỘT lần trong trình soạn thảo để bật kiểm tra 10 phút/lần (chạy lại không tạo trùng). */
+function setupWatchdog() {
+  ScriptApp.getProjectTriggers().forEach(function (tr) {
+    if (tr.getHandlerFunction() === 'checkHeartbeat') ScriptApp.deleteTrigger(tr);
+  });
+  ScriptApp.newTrigger('checkHeartbeat').timeBased().everyMinutes(10).create();
+  return 'Đã bật kiểm tra 10 phút/lần';
 }
