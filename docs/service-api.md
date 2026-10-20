@@ -36,6 +36,7 @@ Dịch vụ: `zalo-agent mcp start --http 3847 --auth <token>`, chạy thường
 | `readOnly` | `true` = không có tool gửi |
 | `sendLog` | Đường dẫn nhật ký gửi; `false` = tắt |
 | `forward.url` / `forward.token` / `forward.timeout` | Chuyển tin sang Google Apps Script (https) |
+| `forward.heartbeat` | Nhịp tim tới cùng địa chỉ, mặc định `"15m"`; `"0"` = tắt |
 
 File JSON hỏng → dịch vụ **dừng** (fail closed), không quay về mặc định. Sửa cấu hình xong: `restart-service.ps1`.
 
@@ -44,7 +45,7 @@ File JSON hỏng → dịch vụ **dừng** (fail closed), không quay về mặ
 `POST forward.url` với `{"token": "...", "message": {...}}` (tin mới) hoặc `{"token": "...", "messages": [...]}`
 (ghi bù sau mỗi lần kết nối). Mỗi tin: `msgId, threadId, threadType, threadName, senderId, senderName, text,
 timestamp (ms), type`. Phía nhận trả `{"ok":true,"added":n,"duplicate":m}` hoặc `{"ok":false,"error":"..."}`;
-bỏ qua `msgId` đã có. Apps Script mẫu: `integrations/google-sheets/Code.gs` (token ở Script Properties `TOKEN`).
+bỏ qua `msgId` đã có. Nhịp tim: `{"token": "...", "heartbeat": {at, uptimeSec, zaloConnected, lastConnectedAt, reconnectCount}}` → `{"ok":true,"heartbeat":true}`, không tạo dòng tin. Apps Script mẫu: `integrations/google-sheets/Code.gs` (token ở Script Properties `TOKEN`).
 
 ## Thư mục dữ liệu — `%ZALO_AGENT_HOME%` (`G:\07_TQM_ZALO_AGENT_DATA`)
 

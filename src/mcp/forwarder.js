@@ -73,6 +73,16 @@ export class MessageForwarder {
     }
 
     /**
+     * POST a liveness beat so the receiver can alert when the service goes quiet. Never rejects.
+     * @param {{ uptimeSec: number, zaloConnected: boolean, lastConnectedAt: number|null, reconnectCount: number }} beat
+     * @returns {Promise<boolean>}
+     */
+    async sendHeartbeat(beat) {
+        if (!this.enabled) return false;
+        return this._post({ token: this._token, heartbeat: { at: Date.now(), ...beat } }, "heartbeat");
+    }
+
+    /**
      * POST one message. Resolves to true on a 2xx response, false otherwise. Never rejects.
      * @param {object} message - History-shaped message (msgId, threadId, threadType, senderId, senderName, text, timestamp, type)
      * @param {string|null} [threadName]
