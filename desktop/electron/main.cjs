@@ -32,6 +32,7 @@ function createWindow() {
         minHeight: 640,
         show: false,
         title: "TQM Zalo Agent",
+        icon: path.join(__dirname, "..", "resources", "icon.ico"),
         autoHideMenuBar: true,
         webPreferences: {
             preload: path.join(__dirname, "preload.cjs"),
