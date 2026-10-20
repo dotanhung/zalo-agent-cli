@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import vm from "node:vm";
+import { createHash } from "node:crypto";
 
 const SRC = readFileSync(fileURLToPath(new URL("../../integrations/google-sheets/Code.gs", import.meta.url)), "utf-8");
 
@@ -27,6 +28,7 @@ function load(token) {
     const ctx = {
         SpreadsheetApp: {
             getActiveSpreadsheet: () => ({
+                getName: () => "ZALO LOG",
                 getSheetByName: () => (created ? sheet : null),
                 insertSheet: () => {
                     created = true;
@@ -35,15 +37,23 @@ function load(token) {
             }),
         },
         LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
+        PropertiesService: { getScriptProperties: () => ({ getProperty: (k) => (k === "TOKEN" ? token : null) }) },
+        Utilities: {
+            DigestAlgorithm: { SHA_256: "sha256" },
+            Charset: { UTF_8: "utf8" },
+            // Apps Script returns signed bytes
+            computeDigest: (_alg, str) =>
+                [...createHash("sha256").update(str, "utf8").digest()].map((b) => (b > 127 ? b - 256 : b)),
+        },
         ContentService: {
             MimeType: { JSON: "json" },
             createTextOutput: (t) => ({ setMimeType: () => JSON.parse(t) }),
         },
     };
     vm.createContext(ctx);
-    vm.runInContext(SRC.replace("'DOI-THANH-MA-BI-MAT-DAI'; //", `'${token}'; //`), ctx);
+    vm.runInContext(SRC, ctx);
     const post = (body) => ctx.doPost({ postData: { contents: JSON.stringify(body) } });
-    return { rows, post };
+    return { rows, post, get: () => ctx.doGet() };
 }
 
 const MSG = {
@@ -77,9 +87,19 @@ describe("Code.gs doPost", () => {
         assert.equal(s.rows.length, 0);
     });
 
-    it("refuses to run with the placeholder token", () => {
-        const p = load("DOI-THANH-MA-BI-MAT-DAI");
-        assert.equal(p.post({ token: "DOI-THANH-MA-BI-MAT-DAI", message: MSG }).ok, false);
+    it("refuses everything when TOKEN is not set in Script Properties", () => {
+        const p = load("");
+        assert.match(p.post({ token: "", message: MSG }).error, /not set/);
+        assert.equal(p.rows.length, 0);
+    });
+
+    it("doGet reports version, sheet and a fingerprint matching SHA-256 of the token", () => {
+        const g = s.get();
+        assert.equal(g.ok, true);
+        assert.equal(g.version, "3");
+        assert.equal(g.spreadsheet, "ZALO LOG");
+        assert.equal(g.tokenSet, true);
+        assert.equal(g.tokenFingerprint, createHash("sha256").update("s3cret").digest("hex").slice(0, 8));
     });
 
     it("skips a duplicate msgId", () => {
