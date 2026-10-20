@@ -1,5 +1,6 @@
 /**
  * Per-account credential storage at ~/.zalo-agent-cli/credentials/
+ * (or $ZALO_AGENT_HOME/credentials/ when that variable is set, e.g. to keep data off the system drive).
  * All credential files use 0600 permissions (owner read/write only).
  */
 
@@ -7,7 +8,7 @@ import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, chmodSy
 import { join } from "path";
 import { homedir } from "os";
 
-export const CONFIG_DIR = join(homedir(), ".zalo-agent-cli");
+export const CONFIG_DIR = process.env.ZALO_AGENT_HOME?.trim() || join(homedir(), ".zalo-agent-cli");
 export const CREDENTIALS_DIR = join(CONFIG_DIR, "credentials");
 
 /** Ensure config directories exist. */
