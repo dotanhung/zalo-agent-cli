@@ -7,9 +7,10 @@
  * that Zalo app cannot recognize as a login request.
  *
  * Display methods:
- * 1. iTerm2/Kitty/WezTerm inline image (renders PNG directly in terminal)
+ * 1. iTerm2/WezTerm inline image (only in terminals that render it — elsewhere,
+ *    e.g. Windows PowerShell, the escape prints as a wall of base64 text)
  * 2. Save PNG to config dir
- * 3. Base64 data URL (for IDE/agent preview)
+ * 3. Base64 data URL (only when stdout is not a terminal: IDE/agent preview)
  * 4. File path with platform-specific open hint
  */
 
@@ -27,10 +28,19 @@ function getOpenCommand() {
         case "darwin":
             return "open";
         case "win32":
-            return "start";
+            return "explorer"; // works in both cmd and PowerShell (`start "path"` in cmd opens a console)
         default:
             return "xdg-open";
     }
+}
+
+/**
+ * True when the terminal renders the iTerm2 inline-image escape (OSC 1337).
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {boolean}
+ */
+export function supportsInlineImage(env = process.env) {
+    return env.TERM_PROGRAM === "iTerm.app" || env.TERM_PROGRAM === "WezTerm" || env.LC_TERMINAL === "iTerm2";
 }
 
 /**
@@ -38,8 +48,11 @@ function getOpenCommand() {
  * Synchronous — safe to call from zca-js callback.
  * In JSON mode (--json), outputs structured event for AI agents.
  * @param {object} event - zca-js QR callback event
+ * @param {object} [io] - Overrides for tests
+ * @param {boolean} [io.isTTY] - Whether stdout is an interactive terminal
+ * @param {NodeJS.ProcessEnv} [io.env] - Environment used to detect inline-image support
  */
-export function displayQR(event) {
+export function displayQR(event, { isTTY = process.stdout.isTTY === true, env = process.env } = {}) {
     const imageB64 = event.data?.image || "";
     const jsonMode = process.env.ZALO_JSON_MODE === "1";
 
@@ -73,15 +86,21 @@ export function displayQR(event) {
 
     // Human mode: terminal inline image + hints
     if (imageB64) {
-        // iTerm2/Kitty/WezTerm inline image protocol
-        const b64ForTerm = Buffer.from(imageB64, "base64").toString("base64");
-        process.stdout.write(`\x1b]1337;File=inline=1;width=30;preserveAspectRatio=1:${b64ForTerm}\x07\n`);
+        // iTerm2/WezTerm inline image protocol — other terminals would print raw base64
+        if (isTTY && supportsInlineImage(env)) {
+            process.stdout.write(`\x1b]1337;File=inline=1;width=30;preserveAspectRatio=1:${imageB64}\x07\n`);
+        }
 
         const openCmd = getOpenCommand();
         info(`QR image saved: ${QR_PATH}`);
         info(`To open: ${openCmd} "${QR_PATH}"`);
-        info("Copy this URL and paste in any browser to view QR:");
-        console.log(`data:image/png;base64,${imageB64}`);
+        if (isTTY) {
+            info("Or open the QR page in your browser (address printed below).");
+        } else {
+            // Piped output (IDE / AI agent): a data URL it can render or hand to a browser
+            info("Copy this URL and paste in any browser to view QR:");
+            console.log(`data:image/png;base64,${imageB64}`);
+        }
     }
 }
 
