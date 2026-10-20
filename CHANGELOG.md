@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Dependencies** — bump `zca-js` to 2.2.0 and `@modelcontextprotocol/sdk` to 1.32.1, and refresh transitive deps via `npm audit fix`; `npm audit --omit=dev` now reports 0 vulnerabilities (was 13: 1 critical, 8 high).
+
 ### Fixed
 
 - **Windows: `npm view zalo-agent-cli version` cmd window on every launch** — the startup update check spawned `npm.cmd`, which opens a console that does not auto-close (#5). The check now hits the npm registry over HTTP (`fetch`), never `execSync("npm view")`, and is skipped entirely in MCP stdio / `--json` so Claude Desktop login no longer pops a window.
