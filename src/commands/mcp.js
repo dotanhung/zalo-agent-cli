@@ -16,7 +16,8 @@ import { createMCPServer } from "../mcp/mcp-server.js";
 import { registerTools } from "../mcp/mcp-tools.js";
 import { createHTTPServer } from "../mcp/mcp-http-transport.js";
 import { ZaloNotifier } from "../mcp/notifier.js";
-import { MessageForwarder } from "../mcp/forwarder.js";
+import { MessageForwarder, isForwardable } from "../mcp/forwarder.js";
+import { createLiveApi } from "../mcp/live-api.js";
 import { ThreadNameCache } from "../mcp/thread-name-cache.js";
 import { autoDownloadMedia, isDownloadableMedia } from "../mcp/media-downloader.js";
 
@@ -85,6 +86,9 @@ export function registerMCPCommands(program) {
                 console.error("[mcp] Thread name cache init failed (non-fatal):", e.message);
             }
 
+            // Tools and the notifier must follow re-logins, not keep the startup API instance
+            const liveApi = createLiveApi(getApi);
+
             // Live state for the desktop panel's /admin/status (HTTP mode only)
             const runtime = { lastConnectedAt: 0, reconnectCount: 0, forwarder: null };
 
@@ -97,12 +101,12 @@ export function registerMCPCommands(program) {
                         console.error(`[mcp] Invalid port: ${opts.http}. Must be 1-65535.`);
                         process.exit(1);
                     }
-                    const deps = { api: getApi(), buffer, filter, config, nameCache, historyStore, runtime };
+                    const deps = { api: liveApi, buffer, filter, config, nameCache, historyStore, runtime };
                     const authToken = opts.auth?.trim() || null;
                     httpServer = createHTTPServer(registerTools, deps, port, authToken, opts.host || "127.0.0.1");
                     console.error(`[mcp] HTTP server started on port ${port}`);
                 } else {
-                    await createMCPServer(getApi(), buffer, filter, config, nameCache, historyStore);
+                    await createMCPServer(liveApi, buffer, filter, config, nameCache, historyStore);
                 }
             } catch (e) {
                 console.error("[mcp] Failed to start MCP server:", e.message);
@@ -110,7 +114,7 @@ export function registerMCPCommands(program) {
             }
 
             // Setup notifier (sends to Zalo group when agent is offline)
-            const notifier = new ZaloNotifier(getApi(), config);
+            const notifier = new ZaloNotifier(liveApi, config);
 
             // Optional forwarding of watched-thread messages (e.g. to a Google Sheet)
             let forwarder;
@@ -186,7 +190,7 @@ export function registerMCPCommands(program) {
                         // Catch-up: re-send recent watched messages so anything missed while the server
                         // was down reaches the sheet. The receiver skips msgIds it already has.
                         const threadName = nameCache.get(tid)?.name ?? null;
-                        forwarder.sendBatch(msgs.map((message) => ({ message, threadName })));
+                        forwarder.sendBatch(msgs.filter(isForwardable).map((message) => ({ message, threadName })));
                     }
 
                     // Cursor is a GLOBAL backfill cursor (last id of the whole batch across all
@@ -237,7 +241,7 @@ export function registerMCPCommands(program) {
                         if (hm.threadId && hm.msgId && filter.shouldWatch(hm.threadId, hm.threadType)) {
                             historyStore.ingest(hm.threadId, [hm]);
                             // Fire-and-forget; includes self-sent messages so the sheet is a full log
-                            forwarder.send(hm, nameCache.get(hm.threadId)?.name ?? null);
+                            if (isForwardable(hm)) forwarder.send(hm, nameCache.get(hm.threadId)?.name ?? null);
                         }
                     } catch {
                         // Non-fatal — history ingest must never break live handling
