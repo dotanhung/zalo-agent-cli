@@ -23,7 +23,7 @@ Dịch vụ: `zalo-agent mcp start --http 3847 --auth <token>`, chạy thường
 | Tool | Ghi chú |
 | --- | --- |
 | `zalo_get_messages`, `zalo_list_threads`, `zalo_mark_read`, `zalo_view_media` | Chỉ buffer tin mới của thread thuộc `watchThreads` |
-| `zalo_get_history`, `zalo_search_history` | Lịch sử (backfill ~2 tuần + tin mới); thread ngoài `watchThreads` bị từ chối / lọc bỏ |
+| `zalo_get_history`, `zalo_search_history` | Lịch sử (backfill `historyBackfillPages` trang tin gần nhất, chung mọi thread, + tin mới); thread ngoài `watchThreads` bị từ chối / lọc bỏ |
 | `zalo_search_threads` | Ẩn thread ngoài `watchThreads` |
 | `zalo_send_message` | Không đăng ký khi `readOnly: true`; chỉ gửi tới `sendThreads` (không khai báo = các mã **cụ thể** trong `watchThreads`, không kế thừa `group:*`/`dm:*`); mọi lần gửi ghi `mcp-send-log.jsonl` |
 

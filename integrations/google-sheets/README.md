@@ -56,6 +56,7 @@ Nhắn 3 tin vào nhóm được phép → Sheet có đúng 3 dòng mới trong 
 ## Lưu ý
 
 - Chỉ ghi khi công cụ Zalo đang chạy. Muốn ghi 24/7 trên Windows: `docs/windows-service.md`.
-- Mỗi lần công cụ khởi động / kết nối lại, các tin gần đây (cửa sổ Zalo cho lấy lại, khoảng 2 tuần) được gửi lại;
+- Mỗi lần công cụ khởi động / kết nối lại, các tin gần nhất được gửi lại: `historyBackfillPages` trang (mặc định 5)
+  **chung cho mọi nhóm**, không phải 2 tuần mỗi nhóm — nhóm nhắn dày có thể chiếm hết, nhóm khác chỉ có tin mới;
   script bỏ qua mã tin đã có trong cột "Mã tin", nên tin bị lỡ được ghi bù mà không trùng.
 - Sửa `Code.gs` xong phải **Triển khai → Quản lý bản triển khai → Chỉnh sửa → Phiên bản mới**, URL giữ nguyên.

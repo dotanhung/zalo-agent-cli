@@ -73,7 +73,7 @@ Lấy tin nhắn từ buffer, hỗ trợ cursor để đọc tăng dần.
 ---
 
 ### `zalo_get_history`
-Đọc lịch sử tin nhắn cũ của một DM/nhóm. Khác với `zalo_get_messages` (đọc buffer live), tool này phục vụ từ lịch sử mà server đã thu thập: nạp từ backfill của Zalo mỗi lần server (re)connect (cửa sổ ~2 tuần) và lớn dần theo tin mới. Trả về cũ→mới.
+Đọc lịch sử tin nhắn cũ của một DM/nhóm. Khác với `zalo_get_messages` (đọc buffer live), tool này phục vụ từ lịch sử mà server đã thu thập: nạp từ backfill của Zalo mỗi lần server (re)connect (`historyBackfillPages` trang tin gần nhất, chung mọi thread — nhóm nhắn dày có thể chiếm hết) và lớn dần theo tin mới. Trả về cũ→mới.
 
 **Tham số:**
 
