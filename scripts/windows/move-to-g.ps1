@@ -80,7 +80,15 @@ if ($Restore) {
     }
 }
 # Chi tai khoan nay (va SYSTEM) doc duoc thu muc du lieu
-icacls $DataDir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" "SYSTEM:(OI)(CI)F" /t /q | Out-Null
+# Chi dat quyen tren thu muc goc roi cho file/thu muc con thua huong lai. Khong dung /t voi (OI)(CI):
+# tren file, icacls bo qua ACE co co thua huong nen sau /inheritance:r file mat het quyen (20/10: mcp-http.log
+# khong ai mo duoc, dich vu thoat ma 1 ngay khi khoi dong).
+icacls $DataDir /inheritance:r /grant:r "$($env:USERNAME):(OI)(CI)F" "SYSTEM:(OI)(CI)F" /q | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "icacls $DataDir loi ($LASTEXITCODE)" }
+if (Get-ChildItem -LiteralPath $DataDir -Force | Select-Object -First 1) {
+    icacls (Join-Path $DataDir "*") /reset /t /q | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls /reset trong $DataDir loi ($LASTEXITCODE)" }
+}
 if (-not (Test-Path (Join-Path $DataDir "mcp-config.json"))) { Write-Host "Chua co mcp-config.json trong $DataDir" -ForegroundColor Yellow }
 
 # 4. Bien moi truong cho moi lenh zalo-agent (ke ca Claude Code) dung du lieu o G
