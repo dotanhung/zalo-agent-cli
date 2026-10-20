@@ -72,6 +72,8 @@ Thay toàn bộ việc cấu hình bằng lệnh/JSON hiện nay bằng **một 
 
 ## 5. Kiến trúc
 
+> **Điều chỉnh khi triển khai 0.1 (2026-10-20, anh Hùng duyệt):** giữ dịch vụ chạy nền hiện có (Task Scheduler `ZaloAgentMCP`) làm "động cơ"; phần mềm là **bảng điều khiển** — đọc `/admin/status`, `/admin/threads` của dịch vụ, sửa `mcp-config.json` (có bản `.bak`), khởi động lại dịch vụ bằng `restart-service.ps1`. Luôn chỉ một kết nối Zalo. Giao diện kéo từ `shadcn-admin` (chỉ copy phần cần), điều hướng bằng state thay cho TanStack Router. Việc gói lõi Zalo vào trong .exe (sơ đồ dưới) để ở 0.2. Đăng nhập QR trong phần mềm cũng dời sang 0.2.
+
 ```
 ZaloAgent.exe (Electron)
 ├─ Main process (Node)

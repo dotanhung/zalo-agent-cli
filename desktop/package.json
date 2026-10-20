@@ -1,0 +1,78 @@
+{
+  "name": "tqm-zalo-agent",
+  "productName": "TQM Zalo Agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bảng điều khiển Zalo Agent: đăng nhập, chọn nhóm, Google Sheet, kết nối Claude",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k -n vite,app \"vite --port 5179 --strictPort\" \"wait-on tcp:127.0.0.1:5179 && cross-env ZALO_PANEL_DEV_URL=http://127.0.0.1:5179 electron .\"",
+    "build": "tsc --noEmit && vite build",
+    "start": "electron .",
+    "test": "node --test electron/*.test.cjs",
+    "dist": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@fontsource/be-vietnam-pro": "^5.3.0",
+    "@radix-ui/react-alert-dialog": "^1.1.15",
+    "@radix-ui/react-avatar": "^1.1.11",
+    "@radix-ui/react-checkbox": "^1.3.3",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-label": "^2.1.8",
+    "@radix-ui/react-scroll-area": "^1.2.10",
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "concurrently": "^10.0.6",
+    "cross-env": "^10.1.0",
+    "electron": "^44.9.1",
+    "electron-builder": "^26.15.3",
+    "lucide-react": "^1.8.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.2",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "~6.0.3",
+    "vite": "^8.0.8",
+    "wait-on": "^9.0.1"
+  },
+  "build": {
+    "appId": "vn.tqm.zalo-agent",
+    "productName": "TQM Zalo Agent",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**/*.cjs",
+      "!electron/**/*.test.cjs",
+      "dist/**",
+      "resources/**"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "extraResources": [
+      {
+        "from": "../scripts/windows/restart-service.ps1",
+        "to": "scripts/restart-service.ps1"
+      }
+    ]
+  }
+}
