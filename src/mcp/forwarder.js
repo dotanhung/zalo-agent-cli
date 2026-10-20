@@ -41,6 +41,25 @@ export class MessageForwarder {
     }
 
     /**
+     * POST many messages (e.g. the backfill after a reconnect) in chunks.
+     * The receiver must skip msgIds it already has. Resolves to the number of chunks accepted.
+     * @param {Array<{message: object, threadName: string|null}>} items
+     * @param {number} [chunkSize]
+     * @returns {Promise<number>}
+     */
+    async sendBatch(items, chunkSize = 100) {
+        if (!this.enabled || items.length === 0) return 0;
+        let accepted = 0;
+        for (let i = 0; i < items.length; i += chunkSize) {
+            const messages = items
+                .slice(i, i + chunkSize)
+                .map(({ message, threadName }) => ({ ...message, threadName }));
+            if (await this._post({ token: this._token, messages }, `batch of ${messages.length}`)) accepted++;
+        }
+        return accepted;
+    }
+
+    /**
      * POST one message. Resolves to true on a 2xx response, false otherwise. Never rejects.
      * @param {object} message - History-shaped message (msgId, threadId, threadType, senderId, senderName, text, timestamp, type)
      * @param {string|null} [threadName]
@@ -48,20 +67,25 @@ export class MessageForwarder {
      */
     async send(message, threadName = null) {
         if (!this.enabled) return false;
+        return this._post({ token: this._token, message: { ...message, threadName } }, message.msgId);
+    }
+
+    /** @returns {Promise<boolean>} true on 2xx; never rejects */
+    async _post(body, label) {
         try {
             const res = await this._fetch(this._url, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ token: this._token, message: { ...message, threadName } }),
+                body: JSON.stringify(body),
                 signal: AbortSignal.timeout(this._timeoutMs),
             });
             if (!res.ok) {
-                console.error(`[forward] ${message.msgId}: HTTP ${res.status}`);
+                console.error(`[forward] ${label}: HTTP ${res.status}`);
                 return false;
             }
             return true;
         } catch (e) {
-            console.error(`[forward] ${message.msgId}: ${e.message}`);
+            console.error(`[forward] ${label}: ${e.message}`);
             return false;
         }
     }

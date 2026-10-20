@@ -72,4 +72,29 @@ describe("MessageForwarder", () => {
             assert.deepEqual(received[0].body.message, { ...MSG, threadName: "100 BOT HCNS" });
         });
     });
+
+    it("sendBatch posts messages in chunks with thread names", async () => {
+        const bodies = [];
+        const f = new MessageForwarder({ url: "https://x.test/hook", token: "t" }, async (_url, opts) => {
+            bodies.push(JSON.parse(opts.body));
+            return { ok: true, status: 200 };
+        });
+        const items = [1, 2, 3, 4, 5].map((n) => ({ message: { ...MSG, msgId: `m${n}` }, threadName: "G" }));
+        assert.equal(await f.sendBatch(items, 2), 3);
+        assert.deepEqual(
+            bodies.map((b) => b.messages.length),
+            [2, 2, 1],
+        );
+        assert.equal(bodies[0].token, "t");
+        assert.equal(bodies[0].messages[0].threadName, "G");
+        assert.equal(bodies[0].message, undefined);
+    });
+
+    it("sendBatch is a no-op when disabled or empty", async () => {
+        assert.equal(await new MessageForwarder({}).sendBatch([{ message: MSG, threadName: null }]), 0);
+        assert.equal(
+            await new MessageForwarder({ url: "https://x.test" }, async () => ({ ok: true })).sendBatch([]),
+            0,
+        );
+    });
 });

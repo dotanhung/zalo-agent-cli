@@ -22,31 +22,52 @@ function doPost(e) {
   if (!TOKEN || TOKEN === 'DOI-THANH-MA-BI-MAT-DAI' || body.token !== TOKEN) {
     return json_({ ok: false, error: 'unauthorized' });
   }
-  const m = body.message || {};
-  if (!m.msgId || !m.threadId) return json_({ ok: false, error: 'missing msgId/threadId' });
+  // Một tin (tin mới đến) hoặc cả lô (ghi bù sau khi công cụ khởi động lại)
+  const list = Array.isArray(body.messages) ? body.messages : body.message ? [body.message] : [];
+  const valid = list.filter(function (m) { return m && m.msgId && m.threadId; });
+  if (valid.length === 0) return json_({ ok: false, error: 'missing msgId/threadId' });
 
   const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
+  lock.waitLock(30000);
   try {
-    const cache = CacheService.getScriptCache();
-    const key = 'msg_' + m.msgId;
-    if (cache.get(key)) return json_({ ok: true, duplicate: true });
-
-    sheet_().appendRow([
-      new Date(Number(m.timestamp) || Date.now()),
-      safe_(m.threadName),
-      "'" + m.threadId,
-      safe_(m.senderName),
-      "'" + (m.senderId || ''),
-      safe_(m.text),
-      safe_(m.type),
-      "'" + m.msgId,
-    ]);
-    cache.put(key, '1', 21600); // 6 giờ: chống ghi trùng khi gửi lại
-    return json_({ ok: true });
+    const sh = sheet_();
+    const seen = existingIds_(sh); // chống trùng vĩnh viễn: đọc cột "Mã tin"
+    const rows = [];
+    valid
+      .sort(function (a, b) { return (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0); })
+      .forEach(function (m) {
+        const id = String(m.msgId);
+        if (seen[id]) return;
+        seen[id] = true;
+        rows.push([
+          new Date(Number(m.timestamp) || Date.now()),
+          safe_(m.threadName),
+          "'" + m.threadId,
+          safe_(m.senderName),
+          "'" + (m.senderId || ''),
+          safe_(m.text),
+          safe_(m.type),
+          "'" + id,
+        ]);
+      });
+    if (rows.length > 0) {
+      sh.getRange(sh.getLastRow() + 1, 1, rows.length, HEADERS.length).setValues(rows);
+    }
+    return json_({ ok: true, added: rows.length, duplicate: valid.length - rows.length });
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Tập mã tin đã có trong cột H. */
+function existingIds_(sh) {
+  const seen = {};
+  const last = sh.getLastRow();
+  if (last < 2) return seen;
+  sh.getRange(2, 8, last - 1, 1).getDisplayValues().forEach(function (r) {
+    if (r[0]) seen[String(r[0]).replace(/^'/, '')] = true;
+  });
+  return seen;
 }
 
 /** Lấy (hoặc tạo) trang tính "Zalo" có dòng tiêu đề. */
