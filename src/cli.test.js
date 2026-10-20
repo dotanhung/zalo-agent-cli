@@ -10,11 +10,19 @@ import { resolve } from "path";
 
 const CLI = resolve(import.meta.dirname, "index.js");
 
+/**
+ * Env with a throwaway home. os.homedir() reads USERPROFILE on Windows and ZALO_AGENT_HOME overrides
+ * both, so all three are set — otherwise these tests would use (and connect with) the real Zalo account.
+ */
+function isolatedEnv(home) {
+    return { ...process.env, HOME: home, USERPROFILE: home, ZALO_AGENT_HOME: `${home}/.zalo-agent-cli` };
+}
+
 function run(...args) {
     return execFileSync("node", [CLI, ...args], {
         encoding: "utf-8",
         timeout: 10000,
-        env: { ...process.env, HOME: "/tmp/zalo-agent-cli-test-home" },
+        env: isolatedEnv("/tmp/zalo-agent-cli-test-home"),
     });
 }
 
@@ -83,7 +91,7 @@ describe("CLI interface", () => {
             execFileSync("node", [CLI, "mcp", "start"], {
                 encoding: "utf-8",
                 timeout: 8000,
-                env: { ...process.env, HOME: "/tmp/zalo-agent-cli-test-home-mcp" },
+                env: isolatedEnv("/tmp/zalo-agent-cli-test-home-mcp"),
             });
             assert.fail("expected mcp start to exit non-zero without a session");
         } catch (e) {

@@ -91,7 +91,8 @@ $ErrorActionPreference = "Continue"
 if (Get-Command claude -ErrorAction SilentlyContinue) {
     claude mcp remove zalo -s user 2>$null | Out-Null
     claude mcp add --transport http zalo "http://127.0.0.1:$Port/mcp" --header "Authorization: Bearer $token" -s user | Out-Null
-    claude mcp get zalo
+    # Che ma truy cap khi in ra man hinh
+    claude mcp get zalo 2>&1 | ForEach-Object { "$_" -replace "Bearer [0-9a-fA-F]+", "Bearer ***" }
 } else {
     Write-Host "Khong thay lenh 'claude'. Tu chay:" -ForegroundColor Yellow
     Write-Host "  claude mcp remove zalo -s user"
