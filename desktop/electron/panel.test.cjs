@@ -46,10 +46,38 @@ describe("config", () => {
         assert.equal(panel.readConfig(p).n, 12);
     });
 
-    it("keeps sendThreads null (= same as watched)", () => {
-        writeCfg({ watchThreads: ["group:1"], sendThreads: null });
-        panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: null, readOnly: true }, p);
+    it("keeps sendThreads null (= same as watched) while sending is already on", () => {
+        writeCfg({ watchThreads: ["group:1"], sendThreads: null, readOnly: false });
+        panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: null, readOnly: false }, p);
         assert.equal(panel.readConfig(p).sendThreads, null);
+    });
+
+    it("read-only always saves sendThreads as [] (incident 2026-10-20)", () => {
+        writeCfg({ watchThreads: ["group:1", "group:2"], sendThreads: [], readOnly: true });
+        panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: ["group:1"], readOnly: true }, p);
+        assert.deepEqual(panel.readConfig(p).sendThreads, []);
+        // null would mean "every watched thread" once read-only is off, so it is not kept either
+        panel.saveAccess({ watchThreads: ["group:1"], sendThreads: null, readOnly: true }, p);
+        assert.deepEqual(panel.readConfig(p).sendThreads, []);
+        // an old file that already lists groups is cleaned on the next read-only save
+        writeCfg({ watchThreads: ["group:1"], sendThreads: ["group:1"], readOnly: true });
+        panel.saveAccess({ watchThreads: ["group:1"], sendThreads: ["group:1"], readOnly: true }, p);
+        assert.deepEqual(panel.readConfig(p).sendThreads, []);
+        // switching read-only on drops the send list too
+        writeCfg({ watchThreads: ["group:1"], sendThreads: ["group:1"], readOnly: false });
+        const r = panel.validateAccess({ watchThreads: ["group:1"], sendThreads: ["group:1"], readOnly: true }, panel.readConfig(p));
+        assert.deepEqual(r, { watchThreads: ["group:1"], sendThreads: [], readOnly: true });
+    });
+
+    it("unlocking read-only cannot grant any thread in the same save", () => {
+        const current = { watchThreads: ["group:1"], sendThreads: [], readOnly: true };
+        assert.throws(() => panel.validateAccess({ watchThreads: ["group:1"], sendThreads: ["group:1"], readOnly: false }, current), /Tắt chỉ đọc trước/);
+        assert.throws(() => panel.validateAccess({ watchThreads: ["group:1"], sendThreads: null, readOnly: false }, current), /Tắt chỉ đọc trước/);
+        const r = panel.validateAccess({ watchThreads: ["group:1"], sendThreads: [], readOnly: false }, current);
+        assert.deepEqual(r.sendThreads, []);
+        // once unlocked, a thread can be granted in its own save
+        const g = panel.validateAccess({ watchThreads: ["group:1"], sendThreads: ["group:1"], readOnly: false }, r);
+        assert.deepEqual(g.sendThreads, ["group:1"]);
     });
 
     it("never adds a new send-to-everyone wildcard, but keeps an existing one", () => {

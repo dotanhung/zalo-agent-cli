@@ -19,9 +19,14 @@ export function SafetyPage() {
 
   const setReadOnly = async (readOnly: boolean) => {
     const c = config.data!
-    const r = await api.saveAccess({ watchThreads: c.watchThreads, sendThreads: c.sendThreads, readOnly })
+    // Unlocking never grants a thread: each one is ticked and confirmed on the Groups page afterwards
+    const r = await api.saveAccess({ watchThreads: c.watchThreads, sendThreads: readOnly ? c.sendThreads : [], readOnly })
     r.restart.ok
-      ? toast.success(readOnly ? 'Đã BẬT chỉ đọc — AI không gửi được tin' : 'Đã TẮT chỉ đọc — AI được gửi tin vào nhóm cho phép')
+      ? toast.success(
+          readOnly
+            ? 'Đã BẬT chỉ đọc — AI không gửi được tin'
+            : 'Đã TẮT chỉ đọc — chưa nhóm nào được gửi; tick từng nhóm ở trang Nhóm theo dõi'
+        )
       : toast.warning('Đã lưu, nhưng khởi động lại dịch vụ chưa thành công')
     config.reload()
   }
@@ -52,7 +57,8 @@ export function SafetyPage() {
                   onRun={() => setReadOnly(false)}
                   confirm={{
                     title: 'Cho phép AI gửi tin Zalo?',
-                    description: `AI sẽ gửi được tin vào ${config.data.sendThreads?.length ?? 0} cuộc trò chuyện đã tick “Được gửi”. Mỗi lần gửi đều ghi nhật ký bên dưới.\nDịch vụ sẽ khởi động lại.`,
+                    description:
+                      'Sau khi tắt, AI CHƯA được gửi vào nhóm nào. Muốn cho gửi: vào trang Nhóm theo dõi, tick “Được gửi” cho từng nhóm và xác nhận riêng từng nhóm.\nMỗi lần gửi đều ghi nhật ký bên dưới. Dịch vụ sẽ khởi động lại.',
                     action: 'Tắt chỉ đọc',
                   }}
                 >
