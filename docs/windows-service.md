@@ -29,7 +29,7 @@ Kết quả đúng: `Dich vu dang chay: http://127.0.0.1:3847/health` và `claud
 | Dịch vụ còn sống | `Invoke-RestMethod http://127.0.0.1:3847/health` |
 | Trạng thái task | `Get-ScheduledTask ZaloAgentMCP \| Get-ScheduledTaskInfo` |
 | Xem log | `Get-Content "$HOME\.zalo-agent-cli\service\mcp-http.log" -Tail 30 -Encoding UTF8` |
-| Khởi động lại (sau khi sửa mcp-config.json hoặc git pull) | `Stop-ScheduledTask ZaloAgentMCP; Start-ScheduledTask ZaloAgentMCP` |
+| Khởi động lại (sau khi sửa mcp-config.json hoặc git pull) | `powershell -ExecutionPolicy Bypass -File .\scripts\windows\restart-service.ps1` — đúng khi `uptime` dưới 120 giây. Không dùng riêng `Stop-ScheduledTask`: nó không tắt tiến trình node bên trong |
 
 ## Gỡ
 
