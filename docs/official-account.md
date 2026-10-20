@@ -240,3 +240,23 @@ zalo-agent oa whoami --oa-id shop2
 | Scope | Tài khoản cá nhân | Official Account |
 | Risk | Có thể bị ban | An toàn, API chính thức |
 | Features | Chat, friend, group, poll... | Messaging, follower, tag, store, webhook |
+
+---
+
+## TQM: ghi tin khách nhắn OA vào Google Sheet
+
+`oa listen --forward` ghi mỗi tin khách gửi (text, ảnh, file…) và lượt quan tâm / bỏ quan tâm vào cùng Google Sheet
+với tin nhóm (mục `forward` trong `mcp-config.json`). Cột Nhóm = `Zalo OA`, Mã nhóm = `oa:<id khách>`.
+Lượt bấm nút/link không ghi.
+
+```powershell
+zalo-agent oa init                                   # một lần: App ID, Secret Key, cấp quyền OA
+zalo-agent oa listen -p 3000 --secret <OA Secret Key> --forward
+```
+
+Zalo chỉ gửi sự kiện tới địa chỉ **HTTPS công khai** → cần đường hầm (`oa init --tunnel cloudflared`) hoặc máy chủ có
+tên miền. Khai báo địa chỉ đó (đuôi `/webhook`) ở developers.zalo.me → Webhook.
+
+Chữ ký `X-ZEvent-Signature` được chấp nhận theo cả hai cách: `sha256(app_id + body + timestamp + OA secret)` (tài liệu
+Zalo) và `HMAC-SHA256(body, secret)`. Chưa kiểm chứng với sự kiện OA thật — nếu bị từ chối hết, chạy tạm `--no-verify`
+và báo lại để kiểm tra.
