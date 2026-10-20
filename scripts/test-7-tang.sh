@@ -8,6 +8,8 @@
 
 set -u
 cd "$(dirname "$0")/.."
+# Never let tests or CLI checks touch the real data dir (ZALO_AGENT_HOME, see src/test-env.js).
+unset ZALO_AGENT_HOME
 
 LAYERS=("$@")
 [ ${#LAYERS[@]} -eq 0 ] && LAYERS=(1 2 3 4 5)
