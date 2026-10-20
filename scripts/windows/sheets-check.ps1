@@ -8,7 +8,8 @@
 param([switch]$CopyToken, [switch]$NoTestRow)
 $ErrorActionPreference = "Stop"
 
-$f = Join-Path $HOME ".zalo-agent-cli\mcp-config.json"
+$data = if ($env:ZALO_AGENT_HOME) { $env:ZALO_AGENT_HOME } else { Join-Path $HOME ".zalo-agent-cli" }
+$f = Join-Path $data "mcp-config.json"
 $c = Get-Content $f -Raw | ConvertFrom-Json
 $url = [string]$c.forward.url
 $tok = ([string]$c.forward.token).Trim()

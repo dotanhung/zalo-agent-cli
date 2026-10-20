@@ -45,3 +45,28 @@ Claude Code quay về tự bật công cụ theo phiên.
 - Không chạy tay `zalo-agent mcp start` hay `zalo-agent listen` cùng lúc: sẽ giành phiên Zalo.
 - `service\http-token.txt` và `service\run-hidden.vbs` chứa mã truy cập; chỉ tài khoản của anh đọc được.
 - Mở Zalo Web (chat.zalo.me) bằng cùng số sẽ đá dịch vụ ra; dịch vụ tự thử lại mỗi phút.
+
+## Đặt toàn bộ trên ổ G (không phụ thuộc ổ C)
+
+Ổ C có thể bị cài lại. `scripts/windows/move-to-g.ps1` chuyển mọi thứ sang ổ G:
+
+| Thư mục | Chứa |
+| --- | --- |
+| `G:\07_TQM_ZALO_AGENT_DESKTOP` | Repo phát triển (nhánh tính năng) |
+| `G:\07_TQM_ZALO_AGENT_RUNTIME` | Bản chạy dịch vụ — worktree ghim vào `origin/main` |
+| `G:\07_TQM_ZALO_AGENT_DATA` | Đăng nhập Zalo, `mcp-config.json`, nhật ký, mã dịch vụ — chỉ tài khoản Windows này đọc được |
+
+Biến môi trường người dùng `ZALO_AGENT_HOME` trỏ vào thư mục DATA, nên mọi lệnh `zalo-agent` và Claude Code dùng dữ liệu trên ổ G.
+
+```powershell
+# Chuyển lần đầu, và cập nhật bản mới sau này (PowerShell Run as administrator)
+powershell -ExecutionPolicy Bypass -File G:\07_TQM_ZALO_AGENT_DESKTOP\scripts\windows\move-to-g.ps1
+```
+
+**Sau khi cài lại Windows:** cài Node.js 20+, Git, Claude Code, đăng nhập Claude, rồi:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File G:\07_TQM_ZALO_AGENT_RUNTIME\scripts\windows\move-to-g.ps1 -Restore
+```
+
+`-Restore` lấy lại quyền sở hữu thư mục DATA (tài khoản Windows mới có mã định danh khác). Nếu Zalo yêu cầu, quét QR lại bằng `zalo-agent login`.
