@@ -27,6 +27,13 @@ Bật email cảnh báo: trong Apps Script chọn hàm **setupWatchdog** ở tha
 → email cho chủ Sheet; khi bot sống lại → email "đã hoạt động lại". Mỗi sự cố chỉ gửi một email.
 Trang kiểm tra (`doGet`) hiện `lastHeartbeat` và `watchdog: true` khi đã bật.
 
+## Trang "Việc cần làm" và email 17h
+
+Tin có dạng **giao việc / phiếu chi, lương / hợp đồng, báo giá / cần xác nhận** (nhận theo từ khóa trong
+`TASK_RULES`, không dùng AI) tự được chép sang trang **Việc cần làm** với cột **Trạng thái** (Chưa làm / Đang làm /
+Xong). `setupWatchdog` cũng bật email **17h mỗi ngày** liệt kê việc chưa "Xong". Chỉ đọc và ghi Sheet — không gửi gì
+vào Zalo. Muốn Claude tổng hợp có ngữ cảnh: skill `bao-cao-viec-zalo`.
+
 ## 2. Khai báo trong mcp-config.json
 
 Mục `forward` gồm `url` (URL ứng dụng web) và `token` (mã bí mật).

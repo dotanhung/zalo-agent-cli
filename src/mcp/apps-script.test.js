@@ -10,26 +10,36 @@ import { createHash } from "node:crypto";
 
 const SRC = readFileSync(fileURLToPath(new URL("../../integrations/google-sheets/Code.gs", import.meta.url)), "utf-8");
 
-function load(token, { now = () => Date.now() } = {}) {
+/** Minimal in-memory Sheet: rows are arrays; getRange(row, col, numRows) reads/writes them. */
+function makeSheet() {
     const rows = [];
-    const sheet = {
+    const range = (row, col, numRows) => ({
+        setNumberFormat: () => {},
+        setDataValidation: () => {},
+        // Display values: the leading apostrophe is hidden by Sheets
+        getDisplayValues: () =>
+            rows
+                .slice(row - 1, row - 1 + numRows)
+                .map((r) =>
+                    r.slice(col - 1).map((v) => String(v instanceof Date ? v.toISOString() : v).replace(/^'/, "")),
+                ),
+        setValues: (vals) => vals.forEach((v, i) => (rows[row - 1 + i] = v)),
+    });
+    return {
+        rows,
         appendRow: (r) => rows.push(r),
         setFrozenRows: () => {},
         getLastRow: () => rows.length,
-        getRange: (row, col, numRows) => ({
-            setNumberFormat: () => {},
-            // Column H as displayed: the leading apostrophe is hidden by Sheets
-            getDisplayValues: () =>
-                rows.slice(row - 1, row - 1 + numRows).map((r) => [String(r[col - 1]).replace(/^'/, "")]),
-            setValues: (vals) => vals.forEach((v) => rows.push(v)),
-        }),
+        getRange: (row, col, numRows) => (typeof row === "string" ? range(1, 1, 0) : range(row, col, numRows)),
     };
-    const status = [];
-    const statusSheet = { getRange: () => ({ setValues: (v) => status.splice(0, status.length, ...v) }) };
+}
+
+function load(token, { now = () => Date.now() } = {}) {
     const sheets = {};
     const props = new Map(token ? [["TOKEN", token]] : []);
     const mails = [];
     const triggers = [];
+    const trigger = (fn) => ({ getHandlerFunction: () => fn });
     const ctx = {
         Date: class extends Date {
             static now() {
@@ -40,8 +50,9 @@ function load(token, { now = () => Date.now() } = {}) {
             getActiveSpreadsheet: () => ({
                 getName: () => "ZALO LOG",
                 getSheetByName: (n) => sheets[n] ?? null,
-                insertSheet: (n) => (sheets[n] = n === "Zalo" ? sheet : statusSheet),
+                insertSheet: (n) => (sheets[n] = makeSheet()),
             }),
+            newDataValidation: () => ({ requireValueInList: () => ({ build: () => ({}) }) }),
         },
         LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
         PropertiesService: {
@@ -52,11 +63,12 @@ function load(token, { now = () => Date.now() } = {}) {
             }),
         },
         ScriptApp: {
-            getProjectTriggers: () => triggers,
+            getProjectTriggers: () => [...triggers], // Apps Script returns a fresh array
             deleteTrigger: (t) => triggers.splice(triggers.indexOf(t), 1),
             newTrigger: (fn) => ({
                 timeBased: () => ({
-                    everyMinutes: () => ({ create: () => triggers.push({ getHandlerFunction: () => fn }) }),
+                    everyMinutes: () => ({ create: () => triggers.push(trigger(fn)) }),
+                    everyDays: () => ({ atHour: () => ({ create: () => triggers.push(trigger(fn)) }) }),
                 }),
             }),
         },
@@ -77,7 +89,23 @@ function load(token, { now = () => Date.now() } = {}) {
     vm.createContext(ctx);
     vm.runInContext(SRC, ctx);
     const post = (body) => ctx.doPost({ postData: { contents: JSON.stringify(body) } });
-    return { rows, post, get: () => ctx.doGet(), ctx, status, mails, triggers, props };
+    return {
+        get rows() {
+            return sheets.Zalo?.rows ?? [];
+        },
+        get status() {
+            return sheets["Trạng thái"]?.rows ?? [];
+        },
+        get tasks() {
+            return sheets["Việc cần làm"]?.rows ?? [];
+        },
+        post,
+        get: () => ctx.doGet(),
+        ctx,
+        mails,
+        triggers,
+        props,
+    };
 }
 
 const MSG = {
@@ -120,7 +148,7 @@ describe("Code.gs doPost", () => {
     it("doGet reports version, sheet and a fingerprint matching SHA-256 of the token", () => {
         const g = s.get();
         assert.equal(g.ok, true);
-        assert.equal(g.version, "4");
+        assert.equal(g.version, "5");
         assert.equal(g.spreadsheet, "ZALO LOG");
         assert.equal(g.tokenSet, true);
         assert.equal(g.tokenFingerprint, createHash("sha256").update("s3cret").digest("hex").slice(0, 8));
@@ -202,11 +230,64 @@ describe("Code.gs watchdog", () => {
         assert.equal(w.mails.length, 1);
     });
 
-    it("setupWatchdog creates exactly one 10-minute trigger, even when run twice", () => {
+    it("setupWatchdog creates the 10-minute check and the daily digest once, even when run twice", () => {
         const w = load("s3cret");
         w.ctx.setupWatchdog();
         w.ctx.setupWatchdog();
-        assert.equal(w.triggers.length, 1);
+        assert.deepEqual(
+            w.triggers.map((t) => t.getHandlerFunction()),
+            ["checkHeartbeat", "sendDailyDigest"],
+        );
         assert.equal(w.get().watchdog, true);
+    });
+});
+
+describe("Code.gs tasks (Việc cần làm)", () => {
+    const msg = (id, text) => ({ ...MSG, msgId: id, text, timestamp: 1000 + Number(id.slice(1)) });
+
+    it("copies task-like messages with their type and status, skips the rest", () => {
+        const w = load("s3cret");
+        w.post({
+            token: "s3cret",
+            messages: [
+                msg("m1", "giao việc ngày 20.10: soạn dự thảo hợp đồng ghế nhựa"),
+                msg("m2", "Chúc mừng Sinh Nhật"),
+                msg("m3", "Làm phiếu chi tiền hoa hồng cho anh Duệ: 20 triệu"),
+                msg("m4", "Phiếu Chi 111 _ Lương ứng 300K\nYêu cầu xác nhận"),
+                msg("m5", "[image]"),
+            ],
+        });
+        assert.equal(w.tasks.length, 4); // header + 3 tasks
+        assert.deepEqual(
+            w.tasks.slice(1).map((r) => [r[3].slice(0, 10), r[4], r[5], r[6]]),
+            [
+                ["giao việc ", "Hợp đồng / báo giá", "Chưa làm", "'m1"],
+                ["Làm phiếu ", "Phiếu chi / lương", "Chưa làm", "'m3"],
+                ["Phiếu Chi ", "Phiếu chi / lương", "Chưa làm", "'m4"],
+            ],
+        );
+    });
+
+    it("does not duplicate a task when the catch-up resends it", () => {
+        const w = load("s3cret");
+        w.post({ token: "s3cret", message: msg("m1", "giao việc A") });
+        w.rows.pop(); // pretend the message row was deleted from the log, so it is re-added
+        w.post({ token: "s3cret", messages: [msg("m1", "giao việc A")] });
+        assert.equal(w.tasks.length, 2);
+    });
+
+    it("emails open tasks once a day and skips done ones", () => {
+        const w = load("s3cret");
+        w.post({ token: "s3cret", messages: [msg("m1", "giao việc A"), msg("m2", "xác nhận phiếu B")] });
+        w.tasks[1][5] = "Xong";
+        assert.equal(w.ctx.sendDailyDigest(), 1);
+        assert.match(w.mails[0].subject, /1 việc chưa xong/);
+        assert.match(w.mails[0].body, /xác nhận phiếu B/);
+    });
+
+    it("sends nothing when there are no tasks", () => {
+        const w = load("s3cret");
+        assert.equal(w.ctx.sendDailyDigest(), 0);
+        assert.equal(w.mails.length, 0);
     });
 });

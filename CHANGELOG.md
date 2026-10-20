@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Tasks from messages** — `Code.gs` v5 copies task-like rows (giao việc, phiếu chi/lương, hợp đồng/báo giá, cần xác nhận; keyword rules, no AI) to a **Việc cần làm** sheet with a status dropdown, deduplicated by message id; `setupWatchdog()` also schedules a 17:00 email listing open tasks. New read-only Claude skill `bao-cao-viec-zalo` builds the same report from MCP history.
 - **OA → Google Sheets** — `zalo-agent oa listen --forward` logs customer messages (`user_send_*`) and follow/unfollow to the sheet configured in `mcp-config.json` `forward` (thread `oa:<user id>`, name "Zalo OA"). OA signature check moved to `src/core/oa-events.js` and now also accepts Zalo's documented `sha256(app_id + body + timestamp + secret)` scheme besides HMAC-SHA256(body).
 - **Dead-bot alert** — the service POSTs a heartbeat to the forward endpoint every 15 min (`forward.heartbeat`). `Code.gs` v4 stores it, shows a **Trạng thái** sheet, exposes `lastHeartbeat`/`watchdog` in `doGet`, and `setupWatchdog()` installs a 10-minute check that emails the sheet owner once when no heartbeat arrives for 30 min or Zalo is disconnected, and once when it recovers.
 - **Working lanes** — `LANES.md` (core vs desktop vs operations, 8 rules), `docs/service-api.md` (service routes, auth, MCP tools, config, forward payload, data layout — the contract between lanes) and a PR template with the lane checklist.
