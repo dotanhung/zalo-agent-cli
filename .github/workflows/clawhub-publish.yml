@@ -1,10 +1,9 @@
 name: Publish Skill to ClawHub
 
+# Disabled in the dotanhung fork: publishing belongs to upstream (PhucMPham/zalo-agent-cli).
+# Manual trigger only, so merges to main never publish to npm/ClawHub.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'skill/**'
+  workflow_dispatch:
 
 jobs:
   publish:
