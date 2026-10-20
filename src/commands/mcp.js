@@ -37,6 +37,16 @@ export function registerMCPCommands(program) {
         .option("--host <address>", "HTTP bind address (default: 127.0.0.1, only with --http)")
         .action(async (opts) => {
             // Perform login explicitly here — preAction hook skips "mcp".
+            // Load MCP config first (config path option reserved for future use).
+            // A broken config stops the server instead of falling back to permissive defaults.
+            let config;
+            try {
+                config = loadMCPConfig();
+            } catch (e) {
+                console.error("[mcp]", e.message);
+                process.exit(1);
+            }
+
             // jsonMode=true: Auto-login banner must not touch stdout (JSON-RPC).
             try {
                 await autoLogin(true);
@@ -45,9 +55,15 @@ export function registerMCPCommands(program) {
                 process.exit(1);
             }
 
-            // Load MCP config (config path option reserved for future use)
-            const config = loadMCPConfig();
             console.error("[mcp] Config loaded:", JSON.stringify(config.limits));
+            console.error(
+                "[mcp] Access:",
+                JSON.stringify({
+                    watchThreads: config.watchThreads,
+                    sendThreads: config.sendThreads,
+                    readOnly: config.readOnly,
+                }),
+            );
 
             // Build buffer + filter from config
             const maxAge = parseDuration(config.limits?.bufferMaxAge ?? "2h");
@@ -144,6 +160,8 @@ export function registerMCPCommands(program) {
                     for (const raw of batch) {
                         const hm = toHistoryMessage(raw);
                         if (!hm.threadId || !hm.msgId) continue;
+                        // Never keep history for threads outside watchThreads — the agent must not see them
+                        if (!filter.shouldWatch(hm.threadId, hm.threadType)) continue;
                         if (!byThread.has(hm.threadId)) byThread.set(hm.threadId, []);
                         byThread.get(hm.threadId).push(hm);
                     }
@@ -194,7 +212,9 @@ export function registerMCPCommands(program) {
                     // Record into history first (complete view: includes self, real timestamps)
                     try {
                         const hm = toHistoryMessage(msg);
-                        if (hm.threadId && hm.msgId) historyStore.ingest(hm.threadId, [hm]);
+                        if (hm.threadId && hm.msgId && filter.shouldWatch(hm.threadId, hm.threadType)) {
+                            historyStore.ingest(hm.threadId, [hm]);
+                        }
                     } catch {
                         // Non-fatal — history ingest must never break live handling
                     }

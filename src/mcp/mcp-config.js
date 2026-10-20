@@ -45,21 +45,29 @@ export function getDefaultConfig() {
  */
 export function loadMCPConfig() {
     const defaults = getDefaultConfig();
+    let raw;
     try {
-        const raw = readFileSync(MCP_CONFIG_FILE, "utf-8");
-        const saved = JSON.parse(raw);
-        // Shallow merge: saved values override defaults
-        return {
-            ...defaults,
-            ...saved,
-            notify: { ...defaults.notify, ...saved.notify },
-            limits: { ...defaults.limits, ...saved.limits },
-            media: { ...defaults.media, ...saved.media },
-        };
-    } catch {
-        // File doesn't exist or invalid JSON — use defaults
-        return defaults;
+        raw = readFileSync(MCP_CONFIG_FILE, "utf-8");
+    } catch (e) {
+        if (e.code === "ENOENT") return defaults; // No config file — use defaults
+        throw new Error(`Cannot read ${MCP_CONFIG_FILE}: ${e.message}`);
     }
+    let saved;
+    try {
+        // Strip a UTF-8 BOM (Windows PowerShell Set-Content adds one)
+        saved = JSON.parse(raw.replace(/^\uFEFF/, ""));
+    } catch (e) {
+        // Fail closed: a broken config must never silently fall back to the permissive defaults
+        throw new Error(`Invalid JSON in ${MCP_CONFIG_FILE}: ${e.message}`);
+    }
+    // Shallow merge: saved values override defaults
+    return {
+        ...defaults,
+        ...saved,
+        notify: { ...defaults.notify, ...saved.notify },
+        limits: { ...defaults.limits, ...saved.limits },
+        media: { ...defaults.media, ...saved.media },
+    };
 }
 
 /**
