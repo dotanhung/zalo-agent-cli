@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **`move-to-g.ps1` finished an update with its old code** — PowerShell runs the copy it loaded at start, so when the update step pulled a new version of the script itself, the rest of that run still used the old one (on 20/10 this re-applied the ACL bug fixed below). The script now re-launches itself once when its own file changed during the update.
 - **`move-to-g.ps1` left data files with an empty ACL** — `icacls /inheritance:r /grant:r ...(OI)(CI)F /t` stripped inherited rights from every file but the inheritable grants did not apply to files, so nobody (not even the owner or SYSTEM) could open them; the service exited with code 1 because it could not write `service\mcp-http.log`. The script now sets the grant on the data folder only and resets children to inherit (`icacls <dir>\* /reset /t`).
 - **Stale Zalo API after re-login** — tools (`zalo_send_message`) and the notifier kept the API object captured at startup, so after a reconnect they called a dead session. They now use `createLiveApi(getApi)`, which always forwards to the current instance.
 - **Recall events in the sheet** — `chat.undo` (message recalled) is no longer forwarded as a row.

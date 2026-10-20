@@ -17,9 +17,13 @@ param(
     [string]$DevRepo = "G:\07_TQM_ZALO_AGENT_DESKTOP",
     [string]$RuntimeDir = "G:\07_TQM_ZALO_AGENT_RUNTIME",
     [string]$DataDir = "G:\07_TQM_ZALO_AGENT_DATA",
-    [switch]$Restore
+    [switch]$Restore,
+    [switch]$Relaunched
 )
 $ErrorActionPreference = "Stop"
+# PowerShell da nap ban script nay vao bo nho; neu buoc 1 cap nhat chinh file nay thi phan con lai van chay ban cu
+# (20/10: ban cu lam mat quyen file du lieu lan nua). Ghi lai dau van tay de chay lai ban moi o duoi.
+$selfHash = if ($PSCommandPath) { (Get-FileHash -LiteralPath $PSCommandPath).Hash } else { $null }
 function Step($msg) { Write-Host ""; Write-Host "== $msg" -ForegroundColor Cyan }
 function Native($exe, [string[]]$argv) {
     & $exe @argv
@@ -44,6 +48,14 @@ if (-not (Test-Path (Join-Path $RuntimeDir "src\index.js"))) {
 } else {
     Native git @("-C", $RuntimeDir, "fetch", "origin", "main")
     Native git @("-C", $RuntimeDir, "checkout", "--detach", "origin/main")
+}
+if (-not $Relaunched -and $selfHash -and (Test-Path -LiteralPath $PSCommandPath) -and
+    (Get-FileHash -LiteralPath $PSCommandPath).Hash -ne $selfHash) {
+    Write-Host "Script vua duoc cap nhat - chay lai ban moi." -ForegroundColor Yellow
+    $argv = @("-ExecutionPolicy", "Bypass", "-File", $PSCommandPath, "-DevRepo", $DevRepo, "-RuntimeDir", $RuntimeDir, "-DataDir", $DataDir, "-Relaunched")
+    if ($Restore) { $argv += "-Restore" }
+    & powershell @argv
+    exit $LASTEXITCODE
 }
 Push-Location $RuntimeDir
 try { Native npm @("ci", "--omit=dev", "--no-audit", "--no-fund") } finally { Pop-Location }
