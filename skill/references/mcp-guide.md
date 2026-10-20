@@ -242,7 +242,7 @@ Mở file media (ảnh/âm thanh/video) đã nhận bằng trình xem hệ thố
 | Trường | Mặc định | Mô tả |
 |--------|----------|--------|
 | `readOnly` | `false` | `true` = không đăng ký tool `zalo_send_message`, agent chỉ đọc được |
-| `sendThreads` | `null` | Danh sách thread được phép gửi (cùng cú pháp `dm:*`, `group:<id>`). `null` = dùng `watchThreads`. `[]` = chặn hết |
+| `sendThreads` | `null` | Danh sách thread được phép gửi (cùng cú pháp `dm:*`, `group:<id>`). `null` = các id cụ thể trong `watchThreads` (không kế thừa `group:*`, `dm:*`). `[]` = chặn hết |
 | `sendLog` | `null` | File nhật ký JSONL mọi lần gửi (sent / blocked / error). `null` = `~/.zalo-agent-cli/mcp-send-log.jsonl`, `false` = tắt |
 
 Gửi tới thread ngoài danh sách sẽ trả lỗi `Send blocked: ...` và không gọi Zalo API.
