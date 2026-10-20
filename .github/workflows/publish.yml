@@ -1,8 +1,9 @@
 name: Publish to npm
 
+# Disabled in the dotanhung fork: publishing belongs to upstream (PhucMPham/zalo-agent-cli).
+# Manual trigger only, so merges to main never publish to npm/ClawHub.
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 jobs:
   publish:
