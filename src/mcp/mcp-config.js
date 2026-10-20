@@ -14,6 +14,9 @@ export function getDefaultConfig() {
         watchThreads: ["dm:*", "group:*"],
         mode: "manual",
         triggerKeywords: ["@bot"],
+        readOnly: false, // true = zalo_send_message is not exposed at all
+        sendThreads: null, // send allowlist patterns; null = same as watchThreads
+        sendLog: null, // send audit log path; null = ~/.zalo-agent-cli/mcp-send-log.jsonl, false = off
         notify: {
             enabled: false,
             thread: null,

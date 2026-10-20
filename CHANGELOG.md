@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **MCP send guard** — `zalo_send_message` now only sends to threads matching `sendThreads` (falls back to `watchThreads`); other threads get `Send blocked` without hitting the Zalo API. New `readOnly: true` hides the send tool entirely. Every send attempt (sent / blocked / error) is appended to `~/.zalo-agent-cli/mcp-send-log.jsonl` (0600; configurable via `sendLog`, `false` to disable).
+
 ### Changed
 
 - **Dependencies** — bump `zca-js` to 2.2.0 and `@modelcontextprotocol/sdk` to 1.32.1, and refresh transitive deps via `npm audit fix`; `npm audit --omit=dev` now reports 0 vulnerabilities (was 13: 1 critical, 8 high).
