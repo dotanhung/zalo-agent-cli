@@ -19,7 +19,7 @@ Dự án `G:\09_TQM_ZALO_AI_OPERATION_HUB` là dự án riêng: **không dùng c
 5. **Dịch vụ thật chỉ chạy từ `G:\07_TQM_ZALO_AGENT_RUNTIME`** (bản `main`, cập nhật bằng `move-to-g.ps1`). Thư mục DESKTOP chỉ để phát triển/thử.
 6. **Dữ liệu chỉ trên ổ G** (`ZALO_AGENT_HOME` = `G:\07_TQM_ZALO_AGENT_DATA`), kể cả dữ liệu Electron (`%ZALO_AGENT_HOME%\desktop`). Không ghi vào ổ C.
 7. **Mỗi số Zalo chỉ một phiên đang chạy.** Phần mềm desktop không tự đăng nhập Zalo song song với dịch vụ: dừng dịch vụ → `zalo-agent login` → `restart-service.ps1`.
-8. **Báo cáo theo mẫu TQM** (7 mục, kết luận trước); chi tiết kỹ thuật để trong mô tả PR.
+8. **Báo cáo theo mẫu TQM** (7 mục, kết luận trước); chi tiết kỹ thuật để trong mô tả PR. **Cần anh quyết định → hỏi bằng pop-up** (AskUserQuestion, skill `hoi-bang-popup`), không hỏi bằng chữ.
 
 ## Đặt tên nhánh
 
