@@ -86,10 +86,37 @@ function readConfig(p = paths()) {
     return JSON.parse(raw.replace(/^﻿/, ""));
 }
 
-/** Config as the renderer may see it: no forward token. */
-function publicConfig(cfg) {
+/**
+ * Version of the config file as it is on disk (hash of its bytes; "none" if missing).
+ * The panel sends back the version it loaded; a save is refused if the file changed since
+ * (another window, Claude, a script), instead of silently overwriting that change.
+ */
+function configVersion(p = paths()) {
+    try {
+        return crypto.createHash("sha256").update(fs.readFileSync(p.configFile)).digest("hex").slice(0, 16);
+    } catch (e) {
+        if (e.code === "ENOENT") return "none";
+        throw e;
+    }
+}
+
+class ConfigConflictError extends Error {
+    constructor() {
+        super("Cấu hình vừa được thay đổi ở nơi khác sau khi anh mở màn hình này. Đã nạp lại — kiểm tra rồi lưu lại.");
+        this.code = "CONFLICT";
+    }
+}
+
+/** Throw ConfigConflictError unless `expected` is the current on-disk version. */
+function assertVersion(expected, p = paths()) {
+    if (typeof expected !== "string" || expected !== configVersion(p)) throw new ConfigConflictError();
+}
+
+/** Config as the renderer may see it: no forward token, plus the version to send back on save. */
+function publicConfig(cfg, version = null) {
     const forward = cfg.forward || {};
     return {
+        version,
         watchThreads: cfg.watchThreads ?? ["dm:*", "group:*"],
         sendThreads: cfg.sendThreads ?? null,
         readOnly: cfg.readOnly === true,
@@ -167,21 +194,25 @@ function writeConfig(next, p = paths(), now = new Date()) {
     return backup;
 }
 
+/** @param {object} input - access rules plus `version` from publicConfig */
 function saveAccess(input, p = paths()) {
+    assertVersion(input.version, p);
     const cfg = readConfig(p);
     const access = validateAccess(input, cfg);
     return writeConfig({ ...cfg, ...access }, p);
 }
 
-function saveSheetsUrl(url, p = paths()) {
+function saveSheetsUrl(url, version, p = paths()) {
     const u = new URL(url); // throws on garbage
     if (u.protocol !== "https:") throw new Error("Địa chỉ Apps Script phải bắt đầu bằng https://");
+    assertVersion(version, p);
     const cfg = readConfig(p);
     return writeConfig({ ...cfg, forward: { ...(cfg.forward || {}), url: u.toString() } }, p);
 }
 
 /** Generate a new forward token, save it, and return it (caller copies to clipboard; never to the renderer). */
-function newSheetsToken(p = paths()) {
+function newSheetsToken(version, p = paths()) {
+    assertVersion(version, p);
     const token = crypto.randomBytes(32).toString("hex");
     const cfg = readConfig(p);
     writeConfig({ ...cfg, forward: { ...(cfg.forward || {}), token } }, p);
@@ -354,6 +385,8 @@ module.exports = {
     fingerprint,
     maskSecrets,
     readConfig,
+    configVersion,
+    ConfigConflictError,
     publicConfig,
     validateAccess,
     writeConfig,

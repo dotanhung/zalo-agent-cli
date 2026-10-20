@@ -156,7 +156,7 @@ function handle(channel, fn) {
         try {
             return { data: await fn(arg) };
         } catch (e) {
-            return { error: e.message };
+            return { error: e.message, code: e.code ?? null };
         }
     });
 }
@@ -164,19 +164,22 @@ function handle(channel, fn) {
 function registerIpc() {
     handle("status", () => panel.getStatus());
     handle("threads", () => panel.getThreads());
-    handle("config:get", () => panel.publicConfig(panel.readConfig()));
+    handle("config:get", () => {
+        const version = panel.configVersion(); // read version first: a write in between makes the save fail safe
+        return panel.publicConfig(panel.readConfig(), version);
+    });
     handle("access:save", async (access) => {
         const backup = panel.saveAccess(access);
         const restart = await panel.restartService(scriptPath("restart-service.ps1"));
         refreshTray();
         return { backup: backup ? path.basename(backup) : null, restart };
     });
-    handle("sheets:saveUrl", async (url) => {
-        panel.saveSheetsUrl(url);
+    handle("sheets:saveUrl", async ({ url, version } = {}) => {
+        panel.saveSheetsUrl(url, version);
         return panel.restartService(scriptPath("restart-service.ps1"));
     });
-    handle("sheets:newToken", async () => {
-        const token = panel.newSheetsToken();
+    handle("sheets:newToken", async (version) => {
+        const token = panel.newSheetsToken(version);
         clipboard.writeText(token);
         const restart = await panel.restartService(scriptPath("restart-service.ps1"));
         return { tail: panel.tail4(token), copied: true, restart };

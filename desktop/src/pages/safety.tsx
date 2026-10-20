@@ -4,7 +4,7 @@ import { api } from '@/lib/api'
 import { useData } from '@/lib/use-data'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { ActionButton, ErrorBox, PageHeader, StatusPill } from '@/components/common'
+import { ActionButton, ErrorBox, PageHeader, StatusPill, toastSaveError } from '@/components/common'
 
 const STATUS = {
   sent: { level: 'ok', label: 'Đã gửi' },
@@ -19,10 +19,14 @@ export function SafetyPage() {
 
   const setReadOnly = async (readOnly: boolean) => {
     const c = config.data!
-    const r = await api.saveAccess({ watchThreads: c.watchThreads, sendThreads: c.sendThreads, readOnly })
-    r.restart.ok
-      ? toast.success(readOnly ? 'Đã BẬT chỉ đọc — AI không gửi được tin' : 'Đã TẮT chỉ đọc — AI được gửi tin vào nhóm cho phép')
-      : toast.warning('Đã lưu, nhưng khởi động lại dịch vụ chưa thành công')
+    try {
+      const r = await api.saveAccess({ watchThreads: c.watchThreads, sendThreads: c.sendThreads, readOnly, version: c.version })
+      r.restart.ok
+        ? toast.success(readOnly ? 'Đã BẬT chỉ đọc — AI không gửi được tin' : 'Đã TẮT chỉ đọc — AI được gửi tin vào nhóm cho phép')
+        : toast.warning('Đã lưu, nhưng khởi động lại dịch vụ chưa thành công')
+    } catch (e) {
+      toastSaveError(e)
+    }
     config.reload()
   }
 

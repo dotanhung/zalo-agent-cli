@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ActionButton, ErrorBox, PageHeader } from '@/components/common'
+import { ActionButton, ErrorBox, PageHeader, toastSaveError } from '@/components/common'
 
 const fold = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase()
@@ -133,12 +133,13 @@ export function GroupsPage() {
         watchThreads: [...draft.watch],
         sendThreads: draft.sendNull ? null : [...draft.send],
         readOnly: draft.readOnly,
+        version: config.data!.version,
       })
       if (r.restart.ok)
         toast.success('Đã lưu và khởi động lại dịch vụ', { description: r.backup ? `Bản cũ lưu tại ${r.backup}` : undefined })
       else toast.warning('Đã lưu, nhưng khởi động lại dịch vụ chưa thành công', { description: r.restart.output.slice(-300) })
     } catch (e) {
-      toast.error((e as Error).message)
+      toastSaveError(e) // on a conflict the reload below replaces the stale draft with what is on disk
     }
     config.reload()
     threads.reload()

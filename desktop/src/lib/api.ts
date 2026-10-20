@@ -32,6 +32,8 @@ export type Thread = {
 }
 
 export type PublicConfig = {
+  /** On-disk version when loaded; send it back on save (refused if the file changed meanwhile). */
+  version: string
   watchThreads: string[]
   sendThreads: string[] | null
   readOnly: boolean
@@ -79,19 +81,23 @@ declare global {
 
 async function call<T>(channel: string, arg?: unknown): Promise<T> {
   if (!window.zalo) throw new Error('Chỉ chạy được trong phần mềm TQM Zalo Agent (không phải trình duyệt).')
-  const r = await window.zalo[channel](arg)
-  if (r.error) throw new Error(r.error)
+  const r = (await window.zalo[channel](arg)) as { data?: unknown; error?: string; code?: string | null }
+  if (r.error) throw Object.assign(new Error(r.error), { code: r.code ?? null })
   return r.data as T
 }
+
+/** True when a save was refused because the config changed after the screen loaded it. */
+export const isConflict = (e: unknown) => (e as { code?: string })?.code === 'CONFLICT'
 
 export const api = {
   status: () => call<Status>('status'),
   threads: () => call<Thread[]>('threads'),
   config: () => call<PublicConfig>('config:get'),
-  saveAccess: (a: { watchThreads: string[]; sendThreads: string[] | null; readOnly: boolean }) =>
+  saveAccess: (a: { watchThreads: string[]; sendThreads: string[] | null; readOnly: boolean; version: string }) =>
     call<{ backup: string | null; restart: RunResult }>('access:save', a),
-  saveSheetsUrl: (url: string) => call<RunResult>('sheets:saveUrl', url),
-  newSheetsToken: () => call<{ tail: string; copied: boolean; restart: RunResult }>('sheets:newToken'),
+  saveSheetsUrl: (url: string, version: string) => call<RunResult>('sheets:saveUrl', { url, version }),
+  newSheetsToken: (version: string) =>
+    call<{ tail: string; copied: boolean; restart: RunResult }>('sheets:newToken', version),
   copySheetsToken: () => call<{ tail: string }>('sheets:copyToken'),
   checkSheets: (writeRow = false) => call<SheetsCheck>('sheets:check', { writeRow }),
   restartService: () => call<RunResult>('service:restart'),

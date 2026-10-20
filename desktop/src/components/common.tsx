@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
+import { isConflict } from '@/lib/api'
 import { AlertCircle, CheckCircle2, CircleDashed, Loader2, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -28,6 +30,12 @@ export function PageHeader({ title, description, actions }: { title: string; des
       {actions && <div className='flex items-center gap-2'>{actions}</div>}
     </header>
   )
+}
+
+/** Toast for a failed save: a conflict (config changed elsewhere) is a warning, the screen reloads. */
+export function toastSaveError(e: unknown) {
+  if (isConflict(e)) toast.warning('Cấu hình vừa thay đổi ở nơi khác', { description: (e as Error).message, duration: 10000 })
+  else toast.error((e as Error).message)
 }
 
 export type Level = 'ok' | 'warn' | 'error' | 'idle'

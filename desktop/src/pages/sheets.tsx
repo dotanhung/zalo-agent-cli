@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { ActionButton, ErrorBox, PageHeader } from '@/components/common'
+import { ActionButton, ErrorBox, PageHeader, toastSaveError } from '@/components/common'
 
 const STEPS = [
   'Mở Google Sheet → Tiện ích mở rộng → Apps Script, dán Code.gs bản mới nhất (integrations/google-sheets/Code.gs).',
@@ -54,12 +54,12 @@ export function SheetsPage() {
               disabled={!urlDirty}
               onRun={async () => {
                 try {
-                  const r = await api.saveSheetsUrl(url.trim())
+                  const r = await api.saveSheetsUrl(url.trim(), config.data!.version)
                   r.ok ? toast.success('Đã lưu URL và khởi động lại dịch vụ') : toast.warning('Đã lưu URL, khởi động lại dịch vụ chưa thành công')
-                  config.reload()
                 } catch (e) {
-                  toast.error((e as Error).message)
+                  toastSaveError(e)
                 }
+                config.reload()
               }}
             >
               <Save /> Lưu URL
@@ -96,10 +96,14 @@ export function SheetsPage() {
             <ActionButton
               variant={f?.tokenSet ? 'outline' : 'default'}
               onRun={async () => {
-                const r = await api.newSheetsToken()
-                toast.success(`Đã tạo mã mới ${r.tail} và sao chép`, { description: 'Dán ngay vào Apps Script, nếu không Sheet sẽ từ chối.' })
+                try {
+                  const r = await api.newSheetsToken(config.data!.version)
+                  toast.success(`Đã tạo mã mới ${r.tail} và sao chép`, { description: 'Dán ngay vào Apps Script, nếu không Sheet sẽ từ chối.' })
+                  setCheck(null)
+                } catch (e) {
+                  toastSaveError(e)
+                }
                 config.reload()
-                setCheck(null)
               }}
               confirm={
                 f?.tokenSet

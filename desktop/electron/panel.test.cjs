@@ -28,7 +28,7 @@ describe("config", () => {
 
     it("saves access with a backup and keeps other keys", () => {
         writeCfg({ watchThreads: ["group:1"], forward: { url: "https://x/exec", token: "t" } });
-        const backup = panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: ["group:2"], readOnly: false }, p);
+        const backup = panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: ["group:2"], readOnly: false, version: panel.configVersion(p) }, p);
         assert.ok(fs.existsSync(backup));
         const cfg = panel.readConfig(p);
         assert.deepEqual(cfg.watchThreads, ["group:1", "group:2"]);
@@ -48,7 +48,7 @@ describe("config", () => {
 
     it("keeps sendThreads null (= same as watched)", () => {
         writeCfg({ watchThreads: ["group:1"], sendThreads: null });
-        panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: null, readOnly: true }, p);
+        panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: null, readOnly: true, version: panel.configVersion(p) }, p);
         assert.equal(panel.readConfig(p).sendThreads, null);
     });
 
@@ -116,16 +116,52 @@ describe("config", () => {
 
     it("only accepts https Apps Script URLs", () => {
         writeCfg({});
-        assert.throws(() => panel.saveSheetsUrl("http://script.google.com/x", p));
-        panel.saveSheetsUrl("https://script.google.com/macros/s/X/exec", p);
+        assert.throws(() => panel.saveSheetsUrl("http://script.google.com/x", panel.configVersion(p), p));
+        panel.saveSheetsUrl("https://script.google.com/macros/s/X/exec", panel.configVersion(p), p);
         assert.equal(panel.readConfig(p).forward.url, "https://script.google.com/macros/s/X/exec");
     });
 
     it("generates a 64-hex token", () => {
         writeCfg({});
-        const t = panel.newSheetsToken(p);
+        const t = panel.newSheetsToken(panel.configVersion(p), p);
         assert.match(t, /^[0-9a-f]{64}$/);
         assert.equal(panel.readConfig(p).forward.token, t);
+    });
+});
+
+describe("save conflicts", () => {
+    const access = { watchThreads: ["group:1"], sendThreads: [], readOnly: true };
+
+    it("refuses to save when the file changed after it was loaded", () => {
+        writeCfg({ watchThreads: ["group:1"], readOnly: true });
+        const loaded = panel.configVersion(p);
+        writeCfg({ watchThreads: ["group:1", "group:9"], readOnly: true }); // someone else saves
+        assert.throws(
+            () => panel.saveAccess({ ...access, version: loaded }, p),
+            (e) => e.code === "CONFLICT",
+        );
+        assert.deepEqual(panel.readConfig(p).watchThreads, ["group:1", "group:9"], "the other change must survive");
+    });
+
+    it("refuses a save without a version", () => {
+        writeCfg({ watchThreads: ["group:1"] });
+        assert.throws(() => panel.saveAccess(access, p), (e) => e.code === "CONFLICT");
+        assert.throws(() => panel.saveSheetsUrl("https://x/exec", undefined, p), (e) => e.code === "CONFLICT");
+        assert.throws(() => panel.newSheetsToken(undefined, p), (e) => e.code === "CONFLICT");
+    });
+
+    it("gives a new version after each save, so a second save from the same stale screen fails", () => {
+        writeCfg({ watchThreads: ["group:1"] });
+        const v1 = panel.configVersion(p);
+        panel.saveAccess({ ...access, watchThreads: ["group:2"], version: v1 }, p);
+        assert.notEqual(panel.configVersion(p), v1);
+        assert.throws(() => panel.saveAccess({ ...access, version: v1 }, p), (e) => e.code === "CONFLICT");
+    });
+
+    it("reports 'none' for a missing file and accepts it as the version", () => {
+        assert.equal(panel.configVersion(p), "none");
+        panel.saveAccess({ ...access, version: "none" }, p);
+        assert.deepEqual(panel.readConfig(p).watchThreads, ["group:1"]);
     });
 });
 
