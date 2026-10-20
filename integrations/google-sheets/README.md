@@ -35,7 +35,7 @@ Nhắn 3 tin vào nhóm được phép → Sheet có đúng 3 dòng mới trong 
 
 ## Lưu ý
 
-- Chỉ ghi khi công cụ Zalo đang chạy (đang mở phiên Claude Code). Muốn ghi 24/7, chạy công cụ thường trực
-  (`zalo-agent mcp start --http 3847 --auth <mã>` dưới pm2) và nối Claude Code vào địa chỉ HTTP đó.
-- Tin trong lúc công cụ tắt không được ghi bù.
+- Chỉ ghi khi công cụ Zalo đang chạy. Muốn ghi 24/7 trên Windows: `docs/windows-service.md`.
+- Mỗi lần công cụ khởi động / kết nối lại, các tin gần đây (cửa sổ Zalo cho lấy lại, khoảng 2 tuần) được gửi lại;
+  script bỏ qua mã tin đã có trong cột "Mã tin", nên tin bị lỡ được ghi bù mà không trùng.
 - Sửa `Code.gs` xong phải **Triển khai → Quản lý bản triển khai → Chỉnh sửa → Phiên bản mới**, URL giữ nguyên.

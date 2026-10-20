@@ -11,11 +11,17 @@ const SRC = readFileSync(fileURLToPath(new URL("../../integrations/google-sheets
 
 function load(token) {
     const rows = [];
-    const cache = new Map();
     const sheet = {
         appendRow: (r) => rows.push(r),
         setFrozenRows: () => {},
-        getRange: () => ({ setNumberFormat: () => {} }),
+        getLastRow: () => rows.length,
+        getRange: (row, col, numRows) => ({
+            setNumberFormat: () => {},
+            // Column H as displayed: the leading apostrophe is hidden by Sheets
+            getDisplayValues: () =>
+                rows.slice(row - 1, row - 1 + numRows).map((r) => [String(r[col - 1]).replace(/^'/, "")]),
+            setValues: (vals) => vals.forEach((v) => rows.push(v)),
+        }),
     };
     let created = false;
     const ctx = {
@@ -29,9 +35,6 @@ function load(token) {
             }),
         },
         LockService: { getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} }) },
-        CacheService: {
-            getScriptCache: () => ({ get: (k) => cache.get(k) ?? null, put: (k, v) => cache.set(k, v) }),
-        },
         ContentService: {
             MimeType: { JSON: "json" },
             createTextOutput: (t) => ({ setMimeType: () => JSON.parse(t) }),
@@ -59,7 +62,7 @@ describe("Code.gs doPost", () => {
     beforeEach(() => (s = load("s3cret")));
 
     it("appends header + one row for a valid message", () => {
-        assert.deepEqual(s.post({ token: "s3cret", message: MSG }), { ok: true });
+        assert.deepEqual(s.post({ token: "s3cret", message: MSG }), { ok: true, added: 1, duplicate: 0 });
         assert.equal(s.rows.length, 2);
         assert.equal(s.rows[0][0], "Thời gian");
         const r = s.rows[1];
@@ -81,7 +84,7 @@ describe("Code.gs doPost", () => {
 
     it("skips a duplicate msgId", () => {
         s.post({ token: "s3cret", message: MSG });
-        assert.equal(s.post({ token: "s3cret", message: MSG }).duplicate, true);
+        assert.equal(s.post({ token: "s3cret", message: MSG }).duplicate, 1);
         assert.equal(s.rows.length, 2);
     });
 
@@ -90,5 +93,29 @@ describe("Code.gs doPost", () => {
         const r = s.rows[1];
         assert.equal(r[5], '\'=IMPORTDATA("http://x")');
         assert.equal(r[3], "'+1");
+    });
+
+    it("accepts a batch, sorts by time and skips ids already in the sheet", () => {
+        s.post({ token: "s3cret", message: MSG }); // m1 already logged live
+        const res = s.post({
+            token: "s3cret",
+            messages: [
+                { ...MSG, msgId: "m3", text: "ba", timestamp: 3000 },
+                { ...MSG, msgId: "m1" },
+                { ...MSG, msgId: "m2", text: "hai", timestamp: 2000 },
+            ],
+        });
+        assert.deepEqual(res, { ok: true, added: 2, duplicate: 1 });
+        assert.deepEqual(
+            s.rows.slice(2).map((r) => r[7]),
+            ["'m2", "'m3"],
+        );
+    });
+
+    it("dedupes across restarts (no in-memory state needed)", () => {
+        s.post({ token: "s3cret", messages: [MSG, { ...MSG, msgId: "m2" }] });
+        const again = s.post({ token: "s3cret", messages: [MSG, { ...MSG, msgId: "m2" }] });
+        assert.equal(again.added, 0);
+        assert.equal(s.rows.length, 3);
     });
 });

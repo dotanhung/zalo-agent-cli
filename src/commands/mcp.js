@@ -177,7 +177,13 @@ export function registerMCPCommands(program) {
                         if (!byThread.has(hm.threadId)) byThread.set(hm.threadId, []);
                         byThread.get(hm.threadId).push(hm);
                     }
-                    for (const [tid, msgs] of byThread) ingested += historyStore.ingest(tid, msgs);
+                    for (const [tid, msgs] of byThread) {
+                        ingested += historyStore.ingest(tid, msgs);
+                        // Catch-up: re-send recent watched messages so anything missed while the server
+                        // was down reaches the sheet. The receiver skips msgIds it already has.
+                        const threadName = nameCache.get(tid)?.name ?? null;
+                        forwarder.sendBatch(msgs.map((message) => ({ message, threadName })));
+                    }
 
                     // Cursor is a GLOBAL backfill cursor (last id of the whole batch across all
                     // threads), not per-thread — that's how Zalo's requestOldMessages(lastId) paginates.
