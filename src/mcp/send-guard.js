@@ -14,13 +14,15 @@ export class SendGuard {
     /**
      * @param {object} config - MCP config
      * @param {boolean} [config.readOnly] - Block every outbound message
-     * @param {string[]} [config.sendThreads] - Patterns allowed to receive messages (default: watchThreads)
-     * @param {string[]} [config.watchThreads] - Fallback allowlist when sendThreads is not set
+     * @param {string[]} [config.sendThreads] - Patterns allowed to receive messages (default: exact ids in watchThreads)
+     * @param {string[]} [config.watchThreads] - Fallback allowlist when sendThreads is not set; wildcards
+     *   ("group:*", "dm:*", "*") are NOT inherited — sending to every thread must be written in sendThreads explicitly
      * @param {string|false|null} [config.sendLog] - Audit log path; false disables it, null uses the default
      */
     constructor(config = {}) {
         this.readOnly = config.readOnly === true;
-        this._filter = new ThreadFilter({ watchThreads: config.sendThreads ?? config.watchThreads });
+        const inherited = (config.watchThreads ?? ["dm:*", "group:*"]).filter((p) => !String(p).includes("*"));
+        this._filter = new ThreadFilter({ watchThreads: config.sendThreads ?? inherited });
         this._logPath = config.sendLog === false ? null : config.sendLog || DEFAULT_SEND_LOG;
     }
 

@@ -40,10 +40,21 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe("SendGuard.check", () => {
-    it("allows everything with default watchThreads", () => {
+    it("allows nothing with default watchThreads (wildcards are not inherited)", () => {
         const g = new SendGuard({ sendLog: false });
-        assert.equal(g.check("u1", "dm").allowed, true);
+        assert.equal(g.check("u1", "dm").allowed, false);
+        assert.equal(g.check("g1", "group").allowed, false);
+    });
+
+    it("does not inherit wildcards from watchThreads, only exact ids", () => {
+        const g = new SendGuard({ watchThreads: ["group:*", "group:g1"], sendThreads: null, sendLog: false });
         assert.equal(g.check("g1", "group").allowed, true);
+        assert.equal(g.check("1353856100235060977", "group").allowed, false);
+    });
+
+    it("still honours a wildcard written explicitly in sendThreads", () => {
+        const g = new SendGuard({ watchThreads: ["group:g1"], sendThreads: ["group:*"], sendLog: false });
+        assert.equal(g.check("g2", "group").allowed, true);
     });
 
     it("falls back to watchThreads when sendThreads is not set", () => {
@@ -148,7 +159,7 @@ describe("zalo_send_message with SendGuard", () => {
                 throw new Error("boom");
             },
         };
-        registerTools(server, api, null, null, { ...base, sendLog: logPath });
+        registerTools(server, api, null, null, { ...base, sendThreads: ["group:g1"], sendLog: logPath });
         const res = await server.tools.get("zalo_send_message")({ threadId: "g1", text: "hi", threadType: 1 });
         assert.equal(res.isError, true);
         const [entry] = readLog(logPath);

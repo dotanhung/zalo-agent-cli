@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
+- **`sendThreads` no longer inherits wildcards** — when `sendThreads` is unset, sending falls back to the *exact* thread ids in `watchThreads` only; `group:*` / `dm:*` / `*` are never inherited. Previously `watchThreads: ["group:*"]` with no `sendThreads` let the agent post to every group (found while reviewing the desktop panel, PR #13). Sending everywhere now requires writing the wildcard in `sendThreads` explicitly. **Behaviour change:** a config with no `sendThreads` and only wildcard `watchThreads` (including the built-in default) can no longer send.
 - **MCP: `watchThreads` now also limits history and thread search** — the history store kept every thread and `zalo_get_history` / `zalo_search_history` / `zalo_search_threads` ignored `watchThreads`, so an agent restricted to one group could still read all others. History is now only captured for watched threads, both history tools filter their results, `zalo_get_history` refuses unwatched threads, and thread search hides them.
 - **MCP config fails closed** — an unreadable or invalid `mcp-config.json` used to fall back silently to the permissive defaults (all threads, sending on); the server now refuses to start. A UTF-8 BOM (Windows PowerShell `Set-Content`) is accepted. The effective access policy is logged at startup.
 

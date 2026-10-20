@@ -25,14 +25,14 @@ Dịch vụ: `zalo-agent mcp start --http 3847 --auth <token>`, chạy thường
 | `zalo_get_messages`, `zalo_list_threads`, `zalo_mark_read`, `zalo_view_media` | Chỉ buffer tin mới của thread thuộc `watchThreads` |
 | `zalo_get_history`, `zalo_search_history` | Lịch sử (backfill ~2 tuần + tin mới); thread ngoài `watchThreads` bị từ chối / lọc bỏ |
 | `zalo_search_threads` | Ẩn thread ngoài `watchThreads` |
-| `zalo_send_message` | Không đăng ký khi `readOnly: true`; chỉ gửi tới `sendThreads` (mặc định = `watchThreads`); mọi lần gửi ghi `mcp-send-log.jsonl` |
+| `zalo_send_message` | Không đăng ký khi `readOnly: true`; chỉ gửi tới `sendThreads` (không khai báo = các mã **cụ thể** trong `watchThreads`, không kế thừa `group:*`/`dm:*`); mọi lần gửi ghi `mcp-send-log.jsonl` |
 
 ## Cấu hình — `%ZALO_AGENT_HOME%\mcp-config.json`
 
 | Khóa | Ý nghĩa |
 | --- | --- |
 | `watchThreads` | Thread được đọc/ghi lịch sử/chuyển Sheet. `group:<id>`, `dm:<id>`, `group:*`, `dm:*` |
-| `sendThreads` | Thread được gửi. `[]` = cấm hết. Không bao giờ `group:*` |
+| `sendThreads` | Thread được gửi. `[]` = cấm hết. `null`/không có = mã cụ thể trong `watchThreads` (wildcard không được kế thừa). Không bao giờ `group:*` |
 | `readOnly` | `true` = không có tool gửi |
 | `sendLog` | Đường dẫn nhật ký gửi; `false` = tắt |
 | `forward.url` / `forward.token` / `forward.timeout` | Chuyển tin sang Google Apps Script (https) |
