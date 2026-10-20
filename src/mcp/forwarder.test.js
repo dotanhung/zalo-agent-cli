@@ -1,7 +1,7 @@
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { MessageForwarder } from "./forwarder.js";
+import { MessageForwarder, isForwardable } from "./forwarder.js";
 
 const MSG = {
     msgId: "m1",
@@ -121,5 +121,10 @@ describe("MessageForwarder", () => {
             text: async () => "<html>TypeError: Cannot read properties</html>",
         }));
         assert.equal(await f.send(MSG), false);
+    });
+
+    it("isForwardable skips recall events (chat.undo)", () => {
+        assert.equal(isForwardable(MSG), true);
+        assert.equal(isForwardable({ ...MSG, type: "chat.undo" }), false);
     });
 });

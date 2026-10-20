@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Stale Zalo API after re-login** — tools (`zalo_send_message`) and the notifier kept the API object captured at startup, so after a reconnect they called a dead session. They now use `createLiveApi(getApi)`, which always forwards to the current instance.
+- **Recall events in the sheet** — `chat.undo` (message recalled) is no longer forwarded as a row.
+- **Service log growth** — the Windows launcher rotates `mcp-http.log` to `.1` at start when it exceeds 5 MB.
 - **Forwarder trusted any HTTP 200** — Apps Script answers 200 even when it refuses, so `{"ok":false}` replies and error pages were silently counted as delivered (seen live: catch-up batch of 14 left no rows and no log line). The reply body is now parsed: refusals and non-JSON replies are logged and treated as failures; batch results log `added` / `duplicate` counts.
 - **Windows service restart** — `Stop-ScheduledTask` only ends the `wscript` launcher; the `node` child kept running with the old config and port. New `scripts/windows/restart-service.ps1` stops the node process too and waits for a fresh `/health` (uptime < 120 s).
 - **Login QR flooded Windows PowerShell with base64 text** — the iTerm2 inline-image escape and the data URL were printed in every terminal. The inline image is now only sent to iTerm2/WezTerm, interactive terminals get a pointer to the browser QR page instead of the data URL (piped output for agents still gets it), and the Windows open hint uses `explorer` (cmd's `start "path"` opens a console instead).

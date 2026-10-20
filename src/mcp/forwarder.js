@@ -17,6 +17,17 @@ function isAllowedUrl(url) {
     }
 }
 
+/** Event types that are not messages a person wrote (e.g. a recall) and must not become sheet rows. */
+const NOT_FORWARDED = new Set(["chat.undo"]);
+
+/**
+ * @param {{type?: string}} message
+ * @returns {boolean}
+ */
+export function isForwardable(message) {
+    return !NOT_FORWARDED.has(message?.type);
+}
+
 export class MessageForwarder {
     /**
      * @param {object} [config] - The `forward` section of the MCP config
