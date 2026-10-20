@@ -159,4 +159,14 @@ export class ThreadNameCache {
     get size() {
         return this._cache.size;
     }
+
+    /**
+     * All cached threads, groups first then by name.
+     * @returns {Array<{ threadId: string, name: string, type: "group"|"dm", memberCount?: number }>}
+     */
+    list() {
+        return [...this._cache]
+            .map(([threadId, info]) => ({ threadId, ...info }))
+            .sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, "vi") : a.type === "group" ? -1 : 1));
+    }
 }

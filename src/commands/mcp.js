@@ -85,6 +85,9 @@ export function registerMCPCommands(program) {
                 console.error("[mcp] Thread name cache init failed (non-fatal):", e.message);
             }
 
+            // Live state for the desktop panel's /admin/status (HTTP mode only)
+            const runtime = { lastConnectedAt: 0, reconnectCount: 0, forwarder: null };
+
             // Start MCP server — stdio (default) or HTTP
             let httpServer = null;
             try {
@@ -94,7 +97,7 @@ export function registerMCPCommands(program) {
                         console.error(`[mcp] Invalid port: ${opts.http}. Must be 1-65535.`);
                         process.exit(1);
                     }
-                    const deps = { api: getApi(), buffer, filter, config, nameCache, historyStore };
+                    const deps = { api: getApi(), buffer, filter, config, nameCache, historyStore, runtime };
                     const authToken = opts.auth?.trim() || null;
                     httpServer = createHTTPServer(registerTools, deps, port, authToken, opts.host || "127.0.0.1");
                     console.error(`[mcp] HTTP server started on port ${port}`);
@@ -117,6 +120,7 @@ export function registerMCPCommands(program) {
                 console.error("[mcp]", e.message);
                 process.exit(1);
             }
+            runtime.forwarder = forwarder;
             if (forwarder.enabled)
                 console.error("[mcp] Forwarding watched messages to", new URL(config.forward.url).host);
 
@@ -269,6 +273,7 @@ export function registerMCPCommands(program) {
                         console.error(`[mcp] Reconnected (#${reconnectCount})`);
                     }
                     lastConnectedAt = Date.now();
+                    runtime.lastConnectedAt = lastConnectedAt;
                     // Seed history from the server backfill while inside the sync window.
                     primeHistoryOnConnect(api);
                 });
@@ -300,6 +305,8 @@ export function registerMCPCommands(program) {
                         rapidCloses++;
                     }
                     lastConnectedAt = 0;
+                    runtime.lastConnectedAt = 0;
+                    runtime.reconnectCount = reconnectCount;
 
                     const delay = reconnectDelay(rapidCloses);
 

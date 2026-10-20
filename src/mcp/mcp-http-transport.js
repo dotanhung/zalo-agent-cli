@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { registerAdminRoutes } from "./admin-routes.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "../../package.json"), "utf8"));
@@ -68,6 +69,9 @@ export function createHTTPServer(registerToolsFn, deps, port, authToken, host = 
             }
         }
     });
+
+    // Desktop control panel endpoints — never exposed without a token
+    if (authToken) registerAdminRoutes(app, deps);
 
     // Health check — no auth required
     app.get("/health", (req, res) => {

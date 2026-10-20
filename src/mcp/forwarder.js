@@ -30,6 +30,8 @@ export class MessageForwarder {
         this._token = config.token || null;
         this._timeoutMs = parseDuration(config.timeout ?? "10s") || 10000;
         this._fetch = fetchFn;
+        /** Delivery counters, shown by the desktop app's status page. */
+        this.stats = { okCount: 0, failCount: 0, lastOkAt: null, lastFailAt: null, lastError: null };
         if (this._url && !isAllowedUrl(this._url)) {
             throw new Error(`forward.url must be https (or http://localhost): ${this._url}`);
         }
@@ -72,6 +74,18 @@ export class MessageForwarder {
 
     /** @returns {Promise<boolean>} true on 2xx; never rejects */
     async _post(body, label) {
+        const ok = await this._postOnce(body, label);
+        if (ok) {
+            this.stats.okCount++;
+            this.stats.lastOkAt = Date.now();
+        } else {
+            this.stats.failCount++;
+            this.stats.lastFailAt = Date.now();
+        }
+        return ok;
+    }
+
+    async _postOnce(body, label) {
         try {
             const res = await this._fetch(this._url, {
                 method: "POST",
@@ -80,7 +94,7 @@ export class MessageForwarder {
                 signal: AbortSignal.timeout(this._timeoutMs),
             });
             if (!res.ok) {
-                console.error(`[forward] ${label}: HTTP ${res.status}`);
+                this._fail(label, `HTTP ${res.status}`);
                 return false;
             }
             // The endpoint answers 200 even when it refuses (Apps Script cannot set a status),
@@ -90,11 +104,11 @@ export class MessageForwarder {
             try {
                 reply = JSON.parse(text);
             } catch {
-                console.error(`[forward] ${label}: non-JSON reply: ${text.slice(0, 160).replace(/\s+/g, " ")}`);
+                this._fail(label, `non-JSON reply: ${text.slice(0, 160).replace(/\s+/g, " ")}`);
                 return false;
             }
             if (reply?.ok === false) {
-                console.error(`[forward] ${label}: rejected (${reply.error ?? "no reason"})`);
+                this._fail(label, `rejected (${reply.error ?? "no reason"})`);
                 return false;
             }
             if (reply && "added" in reply) {
@@ -102,8 +116,13 @@ export class MessageForwarder {
             }
             return true;
         } catch (e) {
-            console.error(`[forward] ${label}: ${e.message}`);
+            this._fail(label, e.message);
             return false;
         }
+    }
+
+    _fail(label, reason) {
+        this.stats.lastError = reason;
+        console.error(`[forward] ${label}: ${reason}`);
     }
 }
