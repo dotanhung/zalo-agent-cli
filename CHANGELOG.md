@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Login QR flooded Windows PowerShell with base64 text** — the iTerm2 inline-image escape and the data URL were printed in every terminal. The inline image is now only sent to iTerm2/WezTerm, interactive terminals get a pointer to the browser QR page instead of the data URL (piped output for agents still gets it), and the Windows open hint uses `explorer` (cmd's `start "path"` opens a console instead).
+- **Dev dependencies** — `npm audit fix` clears the 4 dev-only advisories (eslint/vite toolchain); full `npm audit` now reports 0.
 - **Windows: `npm view zalo-agent-cli version` cmd window on every launch** — the startup update check spawned `npm.cmd`, which opens a console that does not auto-close (#5). The check now hits the npm registry over HTTP (`fetch`), never `execSync("npm view")`, and is skipped entirely in MCP stdio / `--json` so Claude Desktop login no longer pops a window.
 - **MCP stdio: startup Auto-login / update banner could corrupt JSON-RPC** — `mcp start` passed `autoLogin(false)`, so the `● Auto-login` line went to the human output helpers. Combined with the `npm view` spawn this broke Claude Desktop's first frame (`Unexpected token '•'`) (#9). MCP now logs in silently, skips the update check, and keeps stdout for JSON-RPC only.
 - **Update nag when local is ahead of npm** — `1.7.0 !== 1.6.2` warned users to "update" to an older published version. Warn only when the registry version is strictly newer.

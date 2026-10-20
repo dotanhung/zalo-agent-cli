@@ -4,7 +4,7 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { displayQR, getQRPath } from "./qr-display.js";
+import { displayQR, getQRPath, supportsInlineImage } from "./qr-display.js";
 import { existsSync, unlinkSync, mkdirSync } from "fs";
 import { dirname } from "path";
 
@@ -78,13 +78,13 @@ describe("displayQR", () => {
         assert.equal(captured.length, 0, "should not output anything for empty image");
     });
 
-    it("human mode outputs data URL with full base64 (not truncated)", () => {
+    it("piped (non-TTY) human mode outputs data URL with full base64 (not truncated)", () => {
         // No ZALO_JSON_MODE set = human mode
         // Suppress stdout.write (terminal escapes)
         const originalWrite = process.stdout.write;
         process.stdout.write = () => true;
 
-        displayQR({ data: { image: TINY_PNG_B64 } });
+        displayQR({ data: { image: TINY_PNG_B64 } }, { isTTY: false });
 
         process.stdout.write = originalWrite;
 
@@ -93,5 +93,41 @@ describe("displayQR", () => {
         assert.ok(dataUrlLine, "should output a data URL line");
         assert.ok(dataUrlLine.includes(TINY_PNG_B64), "data URL should contain full base64, not truncated");
         assert.ok(!dataUrlLine.includes("..."), "data URL should not be truncated with ...");
+    });
+
+    it("interactive terminal without inline-image support prints no base64 wall (Windows PowerShell)", () => {
+        const writes = [];
+        const originalWrite = process.stdout.write;
+        process.stdout.write = (data) => writes.push(data);
+
+        displayQR({ data: { image: TINY_PNG_B64 } }, { isTTY: true, env: {} });
+
+        process.stdout.write = originalWrite;
+        assert.ok(!writes.some((w) => String(w).includes("\x1b]1337")), "no inline-image escape");
+        assert.ok(!captured.some((l) => l.includes(TINY_PNG_B64)), "no data URL dump");
+    });
+
+    it("interactive iTerm2 terminal gets the inline image", () => {
+        const writes = [];
+        const originalWrite = process.stdout.write;
+        process.stdout.write = (data) => writes.push(data);
+
+        displayQR({ data: { image: TINY_PNG_B64 } }, { isTTY: true, env: { TERM_PROGRAM: "iTerm.app" } });
+
+        process.stdout.write = originalWrite;
+        assert.ok(
+            writes.some((w) => String(w).includes("\x1b]1337")),
+            "inline-image escape written",
+        );
+    });
+});
+
+describe("supportsInlineImage", () => {
+    it("detects iTerm2 and WezTerm only", () => {
+        assert.equal(supportsInlineImage({ TERM_PROGRAM: "iTerm.app" }), true);
+        assert.equal(supportsInlineImage({ LC_TERMINAL: "iTerm2" }), true);
+        assert.equal(supportsInlineImage({ TERM_PROGRAM: "WezTerm" }), true);
+        assert.equal(supportsInlineImage({ TERM_PROGRAM: "vscode" }), false);
+        assert.equal(supportsInlineImage({}), false);
     });
 });
