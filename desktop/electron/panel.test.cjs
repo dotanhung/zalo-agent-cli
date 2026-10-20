@@ -35,6 +35,17 @@ describe("config", () => {
         assert.equal(cfg.forward.token, "t");
     });
 
+    it("keeps only the 10 newest config backups", () => {
+        writeCfg({ watchThreads: ["group:1"] });
+        const start = Date.parse("2026-01-01T00:00:00Z");
+        for (let i = 0; i < 13; i++) panel.writeConfig({ watchThreads: ["group:1"], n: i }, p, new Date(start + i * 1000));
+        const baks = fs.readdirSync(p.cfgDir).filter((f) => f.startsWith("mcp-config.json.bak-")).sort();
+        assert.equal(baks.length, 10);
+        assert.ok(baks[0].includes("2026-01-01T00-00-03"));
+        assert.ok(baks[9].includes("2026-01-01T00-00-12"));
+        assert.equal(panel.readConfig(p).n, 12);
+    });
+
     it("keeps sendThreads null (= same as watched)", () => {
         writeCfg({ watchThreads: ["group:1"], sendThreads: null });
         panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: null, readOnly: true }, p);
@@ -51,6 +62,38 @@ describe("config", () => {
             { watchThreads: ["group:*"], sendThreads: ["group:*"] },
         );
         assert.deepEqual(kept.sendThreads, ["group:*"]);
+    });
+
+    it("blocks a send wildcard introduced through watchThreads + sendThreads null", () => {
+        const current = { watchThreads: ["group:9115874644608778682"], sendThreads: [], readOnly: true };
+        assert.throws(
+            () => panel.validateAccess({ watchThreads: ["group:*"], sendThreads: null, readOnly: false }, current),
+            /mọi nhóm/,
+        );
+        assert.throws(
+            () => panel.validateAccess({ watchThreads: ["dm:*"], sendThreads: null, readOnly: false }, { watchThreads: ["dm:1"], sendThreads: null }),
+            /mọi nhóm/,
+        );
+    });
+
+    it("allows watching every group while read-only (nothing is sent)", () => {
+        const current = { watchThreads: ["group:9115874644608778682"], sendThreads: [], readOnly: true };
+        const r = panel.validateAccess({ watchThreads: ["group:*"], sendThreads: null, readOnly: true }, current);
+        assert.deepEqual(r.watchThreads, ["group:*"]);
+        assert.equal(r.readOnly, true);
+    });
+
+    it("keeps a send wildcard already effective in the current config", () => {
+        const r = panel.validateAccess(
+            { watchThreads: ["group:*"], sendThreads: null, readOnly: false },
+            { watchThreads: ["group:*"], sendThreads: null, readOnly: false },
+        );
+        assert.equal(r.sendThreads, null);
+        // ...but not one that was only watched while read-only
+        assert.throws(
+            () => panel.validateAccess({ watchThreads: ["group:*"], sendThreads: null, readOnly: false }, { watchThreads: ["group:*"], sendThreads: null, readOnly: true }),
+            /mọi nhóm/,
+        );
     });
 
     it("allows sending to a thread covered by a watch wildcard", () => {

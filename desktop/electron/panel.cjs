@@ -4,7 +4,7 @@
  * ~/.zalo-agent-cli/mcp-config.json, checks the Google Sheets endpoint and wires Claude Code.
  *
  * Rules: never return secrets to the renderer (only the last 4 chars), never delete files
- * (config writes keep a timestamped .bak copy), never touch anything outside the data dir
+ * except old config backups (config writes keep the 10 newest timestamped .bak copies), never touch anything outside the data dir
  * (%ZALO_AGENT_HOME%, default ~/.zalo-agent-cli). Never log in to Zalo itself — the service
  * owns the only Zalo session.
  */
@@ -98,6 +98,7 @@ function publicConfig(cfg) {
 }
 
 const PATTERN = /^(group|dm):(\*|[0-9]+)$/;
+const isWildcard = (s) => s === "*" || s.endsWith(":*");
 
 /**
  * @param {object} input - { watchThreads: string[], sendThreads: string[]|null, readOnly: boolean }
@@ -122,17 +123,33 @@ function validateAccess(input, current = {}) {
     }
     if (typeof input.readOnly !== "boolean") errors.push("readOnly phải là true/false");
     if (errors.length) throw new Error(errors.join("; "));
+    // The panel never offers "send to every group": compare the EFFECTIVE send lists
+    // (sendThreads null = same as watchThreads, readOnly = nothing) so a wildcard may only
+    // survive from the existing config, never be introduced through watchThreads + null.
+    const nextSend = input.readOnly ? [] : (lists.sendThreads ?? lists.watchThreads);
+    const had = new Set(current.readOnly === true ? [] : (current.sendThreads ?? current.watchThreads ?? []));
+    const newWild = nextSend.filter((s) => isWildcard(s) && !had.has(s));
+    if (newWild.length) throw new Error(`Không cho phép gửi tới mọi nhóm/mọi người: ${newWild.join(", ")}`);
     if (lists.sendThreads) {
-        // The panel never offers "send to every group": a wildcard may only survive from the existing config
-        const had = new Set(current.sendThreads ?? current.watchThreads ?? []);
-        const newWild = lists.sendThreads.filter((s) => s.endsWith(":*") && !had.has(s));
-        if (newWild.length) throw new Error(`Không cho phép gửi tới mọi nhóm/mọi người: ${newWild.join(", ")}`);
         // Sending is only meaningful inside the watched set
         const watched = new Set(lists.watchThreads);
         const notWatched = lists.sendThreads.filter((s) => !watched.has(s) && !watched.has(`${s.split(":")[0]}:*`));
         if (notWatched.length) throw new Error(`Nhóm được gửi phải nằm trong nhóm theo dõi: ${notWatched.join(", ")}`);
     }
     return { watchThreads: lists.watchThreads, sendThreads: lists.sendThreads, readOnly: input.readOnly };
+}
+
+const MAX_BACKUPS = 10;
+
+/** Keep only the newest MAX_BACKUPS config backups: each one holds forward.token. */
+function pruneBackups(p = paths(), keep = MAX_BACKUPS) {
+    const prefix = `${path.basename(p.configFile)}.bak-`;
+    const olds = fs
+        .readdirSync(p.cfgDir)
+        .filter((f) => f.startsWith(prefix))
+        .sort() // ISO timestamps sort chronologically
+        .slice(0, -keep);
+    for (const f of olds) fs.rmSync(path.join(p.cfgDir, f), { force: true });
 }
 
 /** Write config atomically, keeping a timestamped backup of the previous file. Returns backup path. */
@@ -142,6 +159,7 @@ function writeConfig(next, p = paths(), now = new Date()) {
     if (fs.existsSync(p.configFile)) {
         backup = `${p.configFile}.bak-${now.toISOString().replace(/[:.]/g, "-")}`;
         fs.copyFileSync(p.configFile, backup);
+        pruneBackups(p);
     }
     const tmp = `${p.configFile}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(next, null, 2), "utf8");
@@ -339,6 +357,7 @@ module.exports = {
     publicConfig,
     validateAccess,
     writeConfig,
+    pruneBackups,
     saveAccess,
     saveSheetsUrl,
     newSheetsToken,
