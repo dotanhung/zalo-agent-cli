@@ -1,7 +1,7 @@
 /**
  * Zalo Official Account API v3.0 client.
  * Wraps OA REST endpoints with node-fetch. No dependency on zca-js.
- * Credentials stored in ~/.zalo-agent/oa-credentials.json.
+ * Credentials stored in ~/.zalo-agent/oa-credentials.json ($ZALO_AGENT_HOME/oa/ when set).
  */
 
 import fs from "node:fs";
@@ -13,7 +13,10 @@ import { buildUploadForm, MAX_FILE_BYTES, MAX_IMAGE_BYTES } from "../utils/uploa
 const V3_BASE = "https://openapi.zalo.me/v3.0/oa";
 const V2_BASE = "https://openapi.zalo.me/v2.0/oa";
 
-const DATA_DIR = join(homedir(), ".zalo-agent");
+// With ZALO_AGENT_HOME set, OA data lives beside the personal-account data (<home>/oa)
+const DATA_DIR = process.env.ZALO_AGENT_HOME?.trim()
+    ? join(process.env.ZALO_AGENT_HOME.trim(), "oa")
+    : join(homedir(), ".zalo-agent");
 const OA_CREDS_FILE = join(DATA_DIR, "oa-credentials.json");
 
 /**

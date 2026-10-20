@@ -28,5 +28,6 @@ for ($i = 0; $i -lt 30; $i++) {
         }
     } catch {}
 }
-Write-Host "Dich vu chua len sau 60 giay. Xem log: $HOME\.zalo-agent-cli\service\mcp-http.log" -ForegroundColor Red
+$data = if ($env:ZALO_AGENT_HOME) { $env:ZALO_AGENT_HOME } else { Join-Path $HOME ".zalo-agent-cli" }
+Write-Host "Dich vu chua len sau 60 giay. Xem log: $data\service\mcp-http.log" -ForegroundColor Red
 exit 1
