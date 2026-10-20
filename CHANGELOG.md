@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- **MCP: `watchThreads` now also limits history and thread search** — the history store kept every thread and `zalo_get_history` / `zalo_search_history` / `zalo_search_threads` ignored `watchThreads`, so an agent restricted to one group could still read all others. History is now only captured for watched threads, both history tools filter their results, `zalo_get_history` refuses unwatched threads, and thread search hides them.
+- **MCP config fails closed** — an unreadable or invalid `mcp-config.json` used to fall back silently to the permissive defaults (all threads, sending on); the server now refuses to start. A UTF-8 BOM (Windows PowerShell `Set-Content`) is accepted. The effective access policy is logged at startup.
+
 ### Added
 
 - **7-layer test workflow** — `npm run test:7` (`scripts/test-7-tang.sh`) runs static, unit/integration, CLI contract, security and packaging checks; project skill `.claude/skills/test-7-tang` adds manual checklists for live-account and operations testing. CI runs layers 3–5.

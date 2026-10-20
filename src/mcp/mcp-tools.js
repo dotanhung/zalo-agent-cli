@@ -32,6 +32,16 @@ function err(message) {
 }
 
 /**
+ * True when the thread may be shown to the agent. With no filter (tests) everything is visible.
+ * @param {import("./thread-filter.js").ThreadFilter|null} filter
+ * @param {string} threadId
+ * @param {"group"|"dm"} threadType
+ */
+function isVisible(filter, threadId, threadType) {
+    return !filter || filter.shouldWatch(threadId, threadType);
+}
+
+/**
  * Annotate each message with its thread's display name (per-message, so it works for
  * both single-thread and cross-thread result sets).
  * @param {Array} messages
@@ -190,7 +200,10 @@ export function registerTools(server, api, buffer, filter, config, nameCache, hi
                 if (!nameCache?.ready) {
                     return err("Thread name cache not initialized yet. Try again shortly.");
                 }
-                const results = nameCache.search(query, type, limit);
+                const results = nameCache
+                    .search(query, type, Number.MAX_SAFE_INTEGER)
+                    .filter((t) => isVisible(filter, t.threadId, t.type))
+                    .slice(0, limit);
                 return ok({ results, total: results.length });
             } catch (e) {
                 console.error("[mcp-tools] zalo_search_threads error:", e.message);
@@ -273,6 +286,9 @@ export function registerTools(server, api, buffer, filter, config, nameCache, hi
                 if (!historyStore) {
                     return err("History store unavailable — restart the MCP server.");
                 }
+                if (!isVisible(filter, threadId, "group") && !isVisible(filter, threadId, "dm")) {
+                    return err(`Thread ${threadId} is not in watchThreads — history is not available`);
+                }
 
                 const { messages, cursor, hasMore } = historyStore.query({
                     threadId,
@@ -283,13 +299,14 @@ export function registerTools(server, api, buffer, filter, config, nameCache, hi
                     before: lastMsgId || null,
                 });
 
-                enrichThreadNames(messages, nameCache);
+                const visible = messages.filter((m) => isVisible(filter, m.threadId, m.threadType));
+                enrichThreadNames(visible, nameCache);
 
                 return ok({
                     threadId,
                     threadType: threadType === 0 ? "dm" : "group",
-                    count: messages.length,
-                    messages,
+                    count: visible.length,
+                    messages: visible,
                     cursor,
                     hasMore,
                 });
@@ -360,9 +377,10 @@ export function registerTools(server, api, buffer, filter, config, nameCache, hi
                     before: before || null,
                 });
 
-                enrichThreadNames(messages, nameCache);
+                const visible = messages.filter((m) => isVisible(filter, m.threadId, m.threadType));
+                enrichThreadNames(visible, nameCache);
 
-                return ok({ count: messages.length, messages, cursor, hasMore });
+                return ok({ count: visible.length, messages: visible, cursor, hasMore });
             } catch (e) {
                 console.error("[mcp-tools] zalo_search_history error:", e.message);
                 return err(e.message);

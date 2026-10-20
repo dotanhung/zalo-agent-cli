@@ -247,6 +247,8 @@ Mở file media (ảnh/âm thanh/video) đã nhận bằng trình xem hệ thố
 
 Gửi tới thread ngoài danh sách sẽ trả lỗi `Send blocked: ...` và không gọi Zalo API.
 
+`watchThreads` giới hạn mọi thứ agent thấy: tin mới, lịch sử (`zalo_get_history`, `zalo_search_history`) và tìm thread (`zalo_search_threads`). File `mcp-config.json` hỏng (JSON sai) thì server không khởi động, thay vì mở hết quyền.
+
 ---
 
 ## Kiến trúc
