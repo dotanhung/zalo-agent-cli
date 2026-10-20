@@ -8,11 +8,22 @@
  * TOKEN phải trùng "forward.token" trong ~/.zalo-agent-cli/mcp-config.json.
  * Đổi mã sau này: chỉ sửa Thuộc tính tập lệnh, KHÔNG cần triển khai lại.
  * Mở URL ứng dụng web trên trình duyệt để xem trang kiểm tra (phiên bản, Sheet, vân tay mã).
- * Cảnh báo bot chết (một lần): trong trình soạn thảo chọn hàm setupWatchdog → Chạy → cấp quyền.
- * Từ đó cứ 10 phút kiểm tra; quá 30 phút không có nhịp tim (hoặc Zalo mất kết nối) → email cho anh.
+ * Cảnh báo bot chết + email việc hằng ngày (một lần): chọn hàm setupWatchdog → Chạy → cấp quyền.
+ * Từ đó cứ 10 phút kiểm tra; quá 30 phút không có nhịp tim (hoặc Zalo mất kết nối) → email cho anh;
+ * 17h mỗi ngày → email các việc chưa xong ở trang "Việc cần làm".
  */
 
-const SCRIPT_VERSION = '4';
+const SCRIPT_VERSION = '5';
+const TASK_SHEET = 'Việc cần làm';
+const TASK_STATUSES = ['Chưa làm', 'Đang làm', 'Xong'];
+const DIGEST_HOUR = 17; // giờ gửi email tóm tắt việc mỗi ngày
+/** Nhận diện tin là việc cần làm (theo từ khóa, không gọi AI). Thứ tự = ưu tiên. */
+const TASK_RULES = [
+  { loai: 'Phiếu chi / lương', re: /phiếu chi|phiếu lương|lương ứng|tạm ứng|hoa hồng|thanh toán|chi tiền/i },
+  { loai: 'Hợp đồng / báo giá', re: /hợp đồng|báo giá|dự thảo/i },
+  { loai: 'Cần xác nhận', re: /xác nhận|phê duyệt|duyệt/i },
+  { loai: 'Giao việc', re: /giao việc|nhờ |yêu cầu|soạn|làm phiếu|làm hồ sơ|deadline|hạn chót/i },
+];
 const STATUS_SHEET = 'Trạng thái';
 const ALERT_AFTER_MIN = 30; // không thấy nhịp tim quá ngần này phút → email cảnh báo
 const SHEET_NAME = 'Zalo';
@@ -88,6 +99,7 @@ function doPost(e) {
       });
     if (rows.length > 0) {
       sh.getRange(sh.getLastRow() + 1, 1, rows.length, HEADERS.length).setValues(rows);
+      addTasks_(rows);
     }
     return json_({ ok: true, added: rows.length, duplicate: valid.length - rows.length });
   } finally {
@@ -183,11 +195,75 @@ function checkHeartbeat() {
   return problem;
 }
 
-/** Chạy MỘT lần trong trình soạn thảo để bật kiểm tra 10 phút/lần (chạy lại không tạo trùng). */
+/** Chạy MỘT lần trong trình soạn thảo: kiểm tra bot 10 phút/lần + email việc lúc 17h (chạy lại không tạo trùng). */
 function setupWatchdog() {
   ScriptApp.getProjectTriggers().forEach(function (tr) {
-    if (tr.getHandlerFunction() === 'checkHeartbeat') ScriptApp.deleteTrigger(tr);
+    const fn = tr.getHandlerFunction();
+    if (fn === 'checkHeartbeat' || fn === 'sendDailyDigest') ScriptApp.deleteTrigger(tr);
   });
   ScriptApp.newTrigger('checkHeartbeat').timeBased().everyMinutes(10).create();
-  return 'Đã bật kiểm tra 10 phút/lần';
+  ScriptApp.newTrigger('sendDailyDigest').timeBased().everyDays(1).atHour(DIGEST_HOUR).create();
+  return 'Đã bật kiểm tra 10 phút/lần và email việc lúc ' + DIGEST_HOUR + 'h';
+}
+
+/* ---------------- Việc cần làm ---------------- */
+
+/** Loại việc của một nội dung tin, hoặc null nếu không phải việc. */
+function taskType_(text) {
+  const t = String(text || '');
+  if (!t || t.charAt(0) === '[') return null; // ảnh/file/sự kiện hệ thống
+  for (let i = 0; i < TASK_RULES.length; i++) if (TASK_RULES[i].re.test(t)) return TASK_RULES[i].loai;
+  return null;
+}
+
+function taskSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sh = ss.getSheetByName(TASK_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(TASK_SHEET);
+    sh.appendRow(['Thời gian', 'Nhóm', 'Người gửi', 'Nội dung', 'Loại', 'Trạng thái', 'Mã tin']);
+    sh.setFrozenRows(1);
+    sh.getRange('A:A').setNumberFormat('dd/MM/yyyy HH:mm');
+    sh.getRange('F2:F').setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(TASK_STATUSES, true).build());
+  }
+  return sh;
+}
+
+/** Chép các dòng tin mới là việc sang trang "Việc cần làm" (bỏ qua mã tin đã có). */
+function addTasks_(rows) {
+  const picked = rows.filter(function (r) { return taskType_(String(r[5]).replace(/^'/, '')); });
+  if (picked.length === 0) return 0;
+  const sh = taskSheet_();
+  const seen = {};
+  const last = sh.getLastRow();
+  if (last >= 2) sh.getRange(2, 7, last - 1, 1).getDisplayValues().forEach(function (r) { seen[r[0]] = true; });
+  const out = [];
+  picked.forEach(function (r) {
+    const id = String(r[7]).replace(/^'/, '');
+    if (seen[id]) return;
+    seen[id] = true;
+    out.push([r[0], r[1], r[3], r[5], taskType_(String(r[5]).replace(/^'/, '')), TASK_STATUSES[0], "'" + id]);
+  });
+  if (out.length > 0) sh.getRange(sh.getLastRow() + 1, 1, out.length, 7).setValues(out);
+  return out.length;
+}
+
+/** Theo lịch 17h: email các việc chưa "Xong" (mới nhất trước). */
+function sendDailyDigest() {
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(TASK_SHEET);
+  if (!sh || sh.getLastRow() < 2) return 0;
+  const open = sh.getRange(2, 1, sh.getLastRow() - 1, 6).getDisplayValues()
+    .filter(function (r) { return r[5] !== 'Xong'; })
+    .reverse();
+  if (open.length === 0) return 0;
+  const lines = open.slice(0, 50).map(function (r, i) {
+    return (i + 1) + '. [' + r[4] + '] ' + r[0] + ' · ' + r[1] + ' · ' + r[2] + ': ' + r[3] + ' (' + r[5] + ')';
+  });
+  MailApp.sendEmail(Session.getEffectiveUser().getEmail(),
+    '[TQM Zalo Agent] ' + open.length + ' việc chưa xong',
+    'Từ Sheet "' + SpreadsheetApp.getActiveSpreadsheet().getName() + '", trang "' + TASK_SHEET + '":\n\n' +
+      lines.join('\n') + (open.length > 50 ? '\n… và ' + (open.length - 50) + ' việc khác.' : '') +
+      '\n\nĐổi cột Trạng thái thành "Xong" để không nhắc lại.');
+  return open.length;
 }
