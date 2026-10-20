@@ -16,6 +16,7 @@ import { createMCPServer } from "../mcp/mcp-server.js";
 import { registerTools } from "../mcp/mcp-tools.js";
 import { createHTTPServer } from "../mcp/mcp-http-transport.js";
 import { ZaloNotifier } from "../mcp/notifier.js";
+import { MessageForwarder } from "../mcp/forwarder.js";
 import { ThreadNameCache } from "../mcp/thread-name-cache.js";
 import { autoDownloadMedia, isDownloadableMedia } from "../mcp/media-downloader.js";
 
@@ -107,6 +108,17 @@ export function registerMCPCommands(program) {
 
             // Setup notifier (sends to Zalo group when agent is offline)
             const notifier = new ZaloNotifier(getApi(), config);
+
+            // Optional forwarding of watched-thread messages (e.g. to a Google Sheet)
+            let forwarder;
+            try {
+                forwarder = new MessageForwarder(config.forward);
+            } catch (e) {
+                console.error("[mcp]", e.message);
+                process.exit(1);
+            }
+            if (forwarder.enabled)
+                console.error("[mcp] Forwarding watched messages to", new URL(config.forward.url).host);
 
             let reconnectCount = 0;
             let shuttingDown = false;
@@ -214,6 +226,8 @@ export function registerMCPCommands(program) {
                         const hm = toHistoryMessage(msg);
                         if (hm.threadId && hm.msgId && filter.shouldWatch(hm.threadId, hm.threadType)) {
                             historyStore.ingest(hm.threadId, [hm]);
+                            // Fire-and-forget; includes self-sent messages so the sheet is a full log
+                            forwarder.send(hm, nameCache.get(hm.threadId)?.name ?? null);
                         }
                     } catch {
                         // Non-fatal — history ingest must never break live handling
