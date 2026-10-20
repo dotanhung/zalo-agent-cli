@@ -43,7 +43,11 @@ describe("MessageForwarder", () => {
     });
 
     it("returns false on a non-2xx response", async () => {
-        const f = new MessageForwarder({ url: "https://x.test/hook" }, async () => ({ ok: false, status: 500 }));
+        const f = new MessageForwarder({ url: "https://x.test/hook" }, async () => ({
+            ok: false,
+            status: 500,
+            text: async () => "",
+        }));
         assert.equal(await f.send(MSG), false);
     });
 
@@ -77,7 +81,7 @@ describe("MessageForwarder", () => {
         const bodies = [];
         const f = new MessageForwarder({ url: "https://x.test/hook", token: "t" }, async (_url, opts) => {
             bodies.push(JSON.parse(opts.body));
-            return { ok: true, status: 200 };
+            return { ok: true, status: 200, text: async () => '{"ok":true,"added":1,"duplicate":0}' };
         });
         const items = [1, 2, 3, 4, 5].map((n) => ({ message: { ...MSG, msgId: `m${n}` }, threadName: "G" }));
         assert.equal(await f.sendBatch(items, 2), 3);
@@ -93,8 +97,29 @@ describe("MessageForwarder", () => {
     it("sendBatch is a no-op when disabled or empty", async () => {
         assert.equal(await new MessageForwarder({}).sendBatch([{ message: MSG, threadName: null }]), 0);
         assert.equal(
-            await new MessageForwarder({ url: "https://x.test" }, async () => ({ ok: true })).sendBatch([]),
+            await new MessageForwarder({ url: "https://x.test" }, async () => ({
+                ok: true,
+                text: async () => "{}",
+            })).sendBatch([]),
             0,
         );
+    });
+
+    it("treats a 200 reply with ok:false as a failure (Apps Script refusals)", async () => {
+        const f = new MessageForwarder({ url: "https://x.test/hook" }, async () => ({
+            ok: true,
+            status: 200,
+            text: async () => '{"ok":false,"error":"unauthorized"}',
+        }));
+        assert.equal(await f.send(MSG), false);
+    });
+
+    it("treats a non-JSON 200 reply (error page) as a failure", async () => {
+        const f = new MessageForwarder({ url: "https://x.test/hook" }, async () => ({
+            ok: true,
+            status: 200,
+            text: async () => "<html>TypeError: Cannot read properties</html>",
+        }));
+        assert.equal(await f.send(MSG), false);
     });
 });
