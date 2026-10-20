@@ -4,11 +4,12 @@
  * server binds to loopback; the router re-checks the token (401 without it).
  *
  *   GET /admin/status  → service, Zalo connection, Google Sheets delivery, access rules
- *   GET /admin/threads → watched threads only (same visibility rule as zalo_get_history),
- *                        with their send flag
+ *   GET /admin/threads → every group (so the owner can tick an unwatched one back on) plus the
+ *                        watched DMs, each with its watched / send flag
  *
- * Secrets (forward token, cookies) are never returned, and nothing about threads outside
- * watchThreads is exposed — not even their names or how many there are.
+ * Secrets (forward token, cookies) are never returned. For threads outside watchThreads only the
+ * group name, id and member count are exposed — never messages or history; the MCP tools for the
+ * AI keep hiding those threads entirely.
  */
 
 import { getActive } from "../core/accounts.js";
@@ -47,19 +48,23 @@ export function buildStatus(deps, now = Date.now()) {
             watchThreads: config.watchThreads ?? [],
             sendThreads: config.sendThreads ?? null,
         },
-        threads: { watched: buildThreads(deps).length, withHistory: deps.historyStore?.threadIds().length ?? 0 },
+        threads: {
+            watched: buildThreads(deps).filter((t) => t.watched).length,
+            withHistory: deps.historyStore?.threadIds().length ?? 0,
+        },
     };
 }
 
 /**
- * Build the /admin/threads payload: watched threads only.
+ * Build the /admin/threads payload: all groups + watched DMs (friends' names stay hidden unless watched).
  * @param {object} deps - { config, filter, nameCache }
  */
 export function buildThreads(deps) {
     const guard = new SendGuard({ ...deps.config, sendLog: false });
     return (deps.nameCache?.list() ?? [])
-        .filter((t) => deps.filter?.shouldWatch(t.threadId, t.type))
-        .map((t) => ({ ...t, watched: true, sendable: guard.check(t.threadId, t.type).allowed }));
+        .map((t) => ({ ...t, watched: Boolean(deps.filter?.shouldWatch(t.threadId, t.type)) }))
+        .filter((t) => t.watched || t.type === "group")
+        .map((t) => ({ ...t, sendable: t.watched && guard.check(t.threadId, t.type).allowed }));
 }
 
 function safeHost(url) {

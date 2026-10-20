@@ -27,6 +27,10 @@ All notable changes to this project will be documented in this file.
 
 - **Dependencies** — bump `zca-js` to 2.2.0 and `@modelcontextprotocol/sdk` to 1.32.1, and refresh transitive deps via `npm audit fix`; `npm audit --omit=dev` now reports 0 vulnerabilities (was 13: 1 critical, 8 high).
 
+### Changed
+
+- **`/admin/threads` lists every group** — the desktop "Nhóm theo dõi" page only received watched threads, so after saving a short list the other groups vanished and could only be re-added by typing their id. It now returns all groups (name, id, member count) with `watched` / `sendable` flags; unwatched DMs stay hidden, and the AI-facing MCP tools still hide unwatched threads entirely. `status.threads.watched` counts watched threads only.
+
 ### Fixed
 
 - **`move-to-g.ps1` left data files with an empty ACL** — `icacls /inheritance:r /grant:r ...(OI)(CI)F /t` stripped inherited rights from every file but the inheritable grants did not apply to files, so nobody (not even the owner or SYSTEM) could open them; the service exited with code 1 because it could not write `service\mcp-http.log`. The script now sets the grant on the data folder only and resets children to inherit (`icacls <dir>\* /reset /t`).
