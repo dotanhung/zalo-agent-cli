@@ -11,8 +11,10 @@
  */
 
 import { createServer } from "node:http";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { success, error, info, warning, output } from "../utils/output.js";
+import { verifyOaSignature, oaEventToMessage } from "../core/oa-events.js";
+import { loadMCPConfig } from "../mcp/mcp-config.js";
+import { MessageForwarder } from "../mcp/forwarder.js";
 
 /** All supported OA webhook event types. */
 const ALL_EVENTS = [
@@ -28,13 +30,6 @@ const ALL_EVENTS = [
     "user_click_link",
 ];
 
-/** Verify MAC signature from Zalo OA using timing-safe comparison. */
-function verifyMac(body, mac, secretKey) {
-    const calculated = createHmac("sha256", secretKey).update(body).digest("hex");
-    if (mac.length !== calculated.length) return false;
-    return timingSafeEqual(Buffer.from(mac), Buffer.from(calculated));
-}
-
 export function registerOAListenCommand(oaCommand, program) {
     oaCommand
         .command("listen")
@@ -45,8 +40,20 @@ export function registerOAListenCommand(oaCommand, program) {
         .option("-e, --events <list>", `Comma-separated event filter: ${ALL_EVENTS.join(",")}`, "all")
         .option("--path <path>", "Webhook URL path", "/webhook")
         .option("--verify-domain <code>", "Zalo domain verification code (serves /zalo_verifier<code>.html)")
+        .option(
+            "--forward",
+            "Also log customer messages and follow/unfollow to the Google Sheet in mcp-config.json forward",
+        )
         .action(async (opts) => {
             const json = () => program.opts().json;
+            let forwarder = null;
+            if (opts.forward) {
+                forwarder = new MessageForwarder(loadMCPConfig().forward);
+                if (!forwarder.enabled) {
+                    error("--forward: mcp-config.json has no forward.url / forward.token");
+                    process.exit(1);
+                }
+            }
             const port = Number(opts.port);
             const eventFilter = opts.events === "all" ? null : opts.events.split(",").map((e) => e.trim());
 
@@ -89,7 +96,7 @@ export function registerOAListenCommand(oaCommand, program) {
                                 // Zalo sends MAC as "mac=<hex>" in X-Zevent-Signature header or mac header
                                 const sigHeader = req.headers["x-zevent-signature"] || req.headers.mac || "";
                                 const mac = sigHeader.startsWith("mac=") ? sigHeader.slice(4) : sigHeader;
-                                if (!mac || !verifyMac(body, mac, opts.secret)) {
+                                if (!verifyOaSignature(body, mac, opts.secret)) {
                                     const errData = {
                                         event_type: "error",
                                         error: "Invalid or missing MAC",
@@ -114,6 +121,11 @@ export function registerOAListenCommand(oaCommand, program) {
 
                             // Enrich with timestamp
                             event._received_at = new Date().toISOString();
+
+                            if (forwarder) {
+                                const row = oaEventToMessage(event);
+                                if (row) forwarder.send(row, "Zalo OA");
+                            }
 
                             // Output event
                             output(event, json(), () => {
