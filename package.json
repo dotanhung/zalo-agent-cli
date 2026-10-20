@@ -18,6 +18,7 @@
   ],
   "scripts": {
     "test": "node --test src/*.test.js src/**/*.test.js",
+    "test:7": "bash scripts/test-7-tang.sh",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
