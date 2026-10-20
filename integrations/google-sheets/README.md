@@ -5,29 +5,32 @@ script ghi thành một dòng trong trang tính **Zalo**. Nhóm ngoài `watchThr
 
 Cột: Thời gian · Nhóm · Mã nhóm · Người gửi · Mã người gửi · Nội dung · Loại · Mã tin.
 
-## 1. Tạo Sheet và script (một lần, ~5 phút)
+## 1. Tạo Sheet và script (một lần)
 
-1. Tạo Google Sheet mới (ví dụ "ZALO LOG – 100 BOT HCNS") trong thư mục Drive phù hợp.
-2. **Tiện ích mở rộng → Apps Script**. Xóa nội dung mẫu, dán toàn bộ `Code.gs`.
-3. Đổi dòng `const TOKEN = 'DOI-THANH-MA-BI-MAT-DAI';` thành một chuỗi ngẫu nhiên dài
-   (ví dụ chạy `[guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')` trong PowerShell). Lưu (Ctrl+S).
-4. **Triển khai → Tùy chọn triển khai mới → biểu tượng bánh răng → Ứng dụng web**:
-   - Thực thi với tư cách: **Tôi**
-   - Người có quyền truy cập: **Bất kỳ ai** (script tự kiểm tra TOKEN; không có TOKEN thì bị từ chối)
-5. Bấm **Triển khai**, cấp quyền khi Google hỏi, chép **URL ứng dụng web** (dạng `https://script.google.com/macros/s/.../exec`).
+1. Tạo Google Sheet mới (ví dụ "ZALO LOG – 100 BOT HCNS").
+2. **Tiện ích mở rộng → Apps Script**. Xóa hết, dán toàn bộ `Code.gs` (**không sửa gì trong code**). Chỉ để một file.
+3. **Cài đặt dự án** (bánh răng, cột trái) → **Thuộc tính tập lệnh** → **Thêm thuộc tính**:
+   tên `TOKEN`, giá trị = mã bí mật (lấy bằng `sheets-check.ps1 -CopyToken`, xem dưới). Lưu.
+4. **Triển khai → Tùy chọn triển khai mới → Ứng dụng web** (Thực thi: **Tôi** · Truy cập: **Bất kỳ ai**),
+   chép **URL ứng dụng web**. Chỉ giữ **một** bản triển khai.
 
-URL + TOKEN là bí mật: ai có cả hai thì ghi được dòng giả vào Sheet (nhưng không đọc được Zalo).
+Đổi mã sau này: chỉ sửa Thuộc tính tập lệnh `TOKEN` — **không** cần dán code hay triển khai lại.
+Sửa `Code.gs`: **Quản lý bản triển khai → ✏️ → Phiên bản mới**, URL giữ nguyên.
 
 ## 2. Khai báo trong mcp-config.json
 
-Thêm mục `forward` (giữ nguyên các mục khác). Ví dụ trên Windows PowerShell:
+Mục `forward` gồm `url` (URL ứng dụng web) và `token` (mã bí mật).
+
+## Kiểm tra nhanh (Windows)
 
 ```powershell
-$cfg = '{ "watchThreads": ["group:9115874644608778682"], "sendThreads": ["group:9115874644608778682"], "readOnly": false, "forward": { "url": "https://script.google.com/macros/s/XXXX/exec", "token": "MA-BI-MAT-O-BUOC-1" } }'
-[System.IO.File]::WriteAllText("$HOME\.zalo-agent-cli\mcp-config.json", $cfg)
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\sheets-check.ps1
 ```
 
-Mở phiên Claude Code mới. Log khởi động có dòng `Forwarding watched messages to script.google.com`.
+In ra phiên bản code Apps Script đang chạy, tên Sheet nhận dữ liệu, và "vân tay" (8 ký tự đầu SHA-256) của mã
+ở hai phía — không in mã thật. Đúng khi thấy `Ma KHOP` và `Ghi thu: OK`.
+Thêm `-CopyToken` để chép mã trong mcp-config.json vào clipboard. Mở URL ứng dụng web trên trình duyệt cũng
+thấy trang kiểm tra này.
 
 ## 3. Thử
 

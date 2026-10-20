@@ -2,15 +2,41 @@
  * Zalo → Google Sheets: nhận tin từ zalo-agent-cli (MCP, mục "forward" trong mcp-config.json)
  * và ghi mỗi tin thành một dòng.
  *
- * Cài: Tiện ích mở rộng → Apps Script → dán toàn bộ file này → đổi TOKEN →
- *      Triển khai → Tùy chọn triển khai mới → Ứng dụng web
- *      (Thực thi với tư cách: Tôi · Người có quyền truy cập: Bất kỳ ai).
+ * Cài: Tiện ích mở rộng → Apps Script → dán toàn bộ file này (KHÔNG cần sửa gì) →
+ *      Cài đặt dự án (bánh răng) → Thuộc tính tập lệnh → thêm TOKEN = mã bí mật →
+ *      Triển khai → Ứng dụng web (Thực thi: Tôi · Truy cập: Bất kỳ ai).
  * TOKEN phải trùng "forward.token" trong ~/.zalo-agent-cli/mcp-config.json.
+ * Đổi mã sau này: chỉ sửa Thuộc tính tập lệnh, KHÔNG cần triển khai lại.
+ * Mở URL ứng dụng web trên trình duyệt để xem trang kiểm tra (phiên bản, Sheet, vân tay mã).
  */
 
-const TOKEN = 'DOI-THANH-MA-BI-MAT-DAI'; // đổi thành chuỗi ngẫu nhiên dài, không chia sẻ
+const SCRIPT_VERSION = '3';
 const SHEET_NAME = 'Zalo';
 const HEADERS = ['Thời gian', 'Nhóm', 'Mã nhóm', 'Người gửi', 'Mã người gửi', 'Nội dung', 'Loại', 'Mã tin'];
+
+/** Mã bí mật lấy từ Thuộc tính tập lệnh "TOKEN" (đọc lúc chạy, không cần triển khai lại khi đổi). */
+function token_() {
+  return String(PropertiesService.getScriptProperties().getProperty('TOKEN') || '').trim();
+}
+
+/** 8 ký tự đầu SHA-256 của mã: để so khớp mà không lộ mã. */
+function fingerprint_(s) {
+  if (!s) return '';
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s, Utilities.Charset.UTF_8);
+  return bytes.slice(0, 4).map(function (b) { return ('0' + ((b + 256) % 256).toString(16)).slice(-2); }).join('');
+}
+
+/** Trang kiểm tra: mở URL ứng dụng web trên trình duyệt. */
+function doGet() {
+  const t = token_();
+  return json_({
+    ok: true,
+    version: SCRIPT_VERSION,
+    spreadsheet: SpreadsheetApp.getActiveSpreadsheet().getName(),
+    tokenSet: t.length > 0,
+    tokenFingerprint: fingerprint_(t),
+  });
+}
 
 function doPost(e) {
   let body;
@@ -19,9 +45,9 @@ function doPost(e) {
   } catch (err) {
     return json_({ ok: false, error: 'bad json' });
   }
-  if (!TOKEN || TOKEN === 'DOI-THANH-MA-BI-MAT-DAI' || body.token !== TOKEN) {
-    return json_({ ok: false, error: 'unauthorized' });
-  }
+  const expected = token_();
+  if (!expected) return json_({ ok: false, error: 'TOKEN not set in Script Properties' });
+  if (body.token !== expected) return json_({ ok: false, error: 'unauthorized' });
   // Một tin (tin mới đến) hoặc cả lô (ghi bù sau khi công cụ khởi động lại)
   const list = Array.isArray(body.messages) ? body.messages : body.message ? [body.message] : [];
   const valid = list.filter(function (m) { return m && m.msgId && m.threadId; });
