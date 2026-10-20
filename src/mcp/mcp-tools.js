@@ -2,11 +2,13 @@
  * MCP tool registrations for Zalo message access and sending.
  * Registers 8 tools: zalo_get_messages, zalo_get_history, zalo_search_history, zalo_send_message,
  * zalo_list_threads, zalo_search_threads, zalo_mark_read, zalo_view_media.
+ * zalo_send_message is omitted in read-only mode and limited to allowlisted threads otherwise.
  */
 
 import { z } from "zod";
 import { downloadMedia, openFile } from "./media-downloader.js";
 import { parseTimeBoundary } from "./history-store.js";
+import { SendGuard } from "./send-guard.js";
 
 /** Thread type constants matching zca-js ThreadType enum */
 const THREAD_USER = 0;
@@ -57,6 +59,7 @@ function enrichThreadNames(messages, nameCache) {
  */
 export function registerTools(server, api, buffer, filter, config, nameCache, historyStore) {
     const maxPerPoll = config.limits?.maxMessagesPerPoll ?? 20;
+    const sendGuard = new SendGuard(config);
 
     // --- zalo_get_messages ---
     server.registerTool(
@@ -89,35 +92,45 @@ export function registerTools(server, api, buffer, filter, config, nameCache, hi
         },
     );
 
-    // --- zalo_send_message ---
-    server.registerTool(
-        "zalo_send_message",
-        {
-            title: "Send Zalo Message",
-            description: "Send a text message to a Zalo thread (DM or group). threadType: 0=DM(User), 1=Group.",
-            inputSchema: z.object({
-                threadId: z.string().describe("Thread ID to send message to"),
-                text: z.string().min(1).describe("Message text to send"),
-                threadType: z
-                    .number()
-                    .int()
-                    .min(0)
-                    .max(1)
-                    .default(THREAD_USER)
-                    .describe("Thread type: 0=DM(User), 1=Group"),
-            }),
-        },
-        async ({ threadId, text, threadType }) => {
-            try {
-                const result = await api.sendMessage(text, threadId, Number(threadType));
-                const messageId = result?.message?.msgId ?? result?.msgId ?? null;
-                return ok({ success: true, messageId });
-            } catch (e) {
-                console.error("[mcp-tools] zalo_send_message error:", e.message);
-                return err(e.message);
-            }
-        },
-    );
+    // --- zalo_send_message (not registered in read-only mode) ---
+    if (!sendGuard.readOnly) {
+        server.registerTool(
+            "zalo_send_message",
+            {
+                title: "Send Zalo Message",
+                description: "Send a text message to a Zalo thread (DM or group). threadType: 0=DM(User), 1=Group.",
+                inputSchema: z.object({
+                    threadId: z.string().describe("Thread ID to send message to"),
+                    text: z.string().min(1).describe("Message text to send"),
+                    threadType: z
+                        .number()
+                        .int()
+                        .min(0)
+                        .max(1)
+                        .default(THREAD_USER)
+                        .describe("Thread type: 0=DM(User), 1=Group"),
+                }),
+            },
+            async ({ threadId, text, threadType }) => {
+                const type = Number(threadType) === THREAD_USER ? "dm" : "group";
+                const verdict = sendGuard.check(threadId, type);
+                if (!verdict.allowed) {
+                    sendGuard.log({ threadId, threadType: type, text, status: "blocked", error: verdict.reason });
+                    return err(`Send blocked: ${verdict.reason}`);
+                }
+                try {
+                    const result = await api.sendMessage(text, threadId, Number(threadType));
+                    const messageId = result?.message?.msgId ?? result?.msgId ?? null;
+                    sendGuard.log({ threadId, threadType: type, text, status: "sent", messageId });
+                    return ok({ success: true, messageId });
+                } catch (e) {
+                    console.error("[mcp-tools] zalo_send_message error:", e.message);
+                    sendGuard.log({ threadId, threadType: type, text, status: "error", error: e.message });
+                    return err(e.message);
+                }
+            },
+        );
+    }
 
     // --- zalo_list_threads ---
     server.registerTool(
