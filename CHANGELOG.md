@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Forwarder trusted any HTTP 200** — Apps Script answers 200 even when it refuses, so `{"ok":false}` replies and error pages were silently counted as delivered (seen live: catch-up batch of 14 left no rows and no log line). The reply body is now parsed: refusals and non-JSON replies are logged and treated as failures; batch results log `added` / `duplicate` counts.
 - **Windows service restart** — `Stop-ScheduledTask` only ends the `wscript` launcher; the `node` child kept running with the old config and port. New `scripts/windows/restart-service.ps1` stops the node process too and waits for a fresh `/health` (uptime < 120 s).
 - **Login QR flooded Windows PowerShell with base64 text** — the iTerm2 inline-image escape and the data URL were printed in every terminal. The inline image is now only sent to iTerm2/WezTerm, interactive terminals get a pointer to the browser QR page instead of the data URL (piped output for agents still gets it), and the Windows open hint uses `explorer` (cmd's `start "path"` opens a console instead).
 - **Dev dependencies** — `npm audit fix` clears the 4 dev-only advisories (eslint/vite toolchain); full `npm audit` now reports 0.

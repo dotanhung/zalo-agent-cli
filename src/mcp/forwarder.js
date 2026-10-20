@@ -83,6 +83,23 @@ export class MessageForwarder {
                 console.error(`[forward] ${label}: HTTP ${res.status}`);
                 return false;
             }
+            // The endpoint answers 200 even when it refuses (Apps Script cannot set a status),
+            // so read the body: {"ok":false,"error":...} or a non-JSON error page is a failure.
+            const text = await res.text().catch(() => "");
+            let reply = null;
+            try {
+                reply = JSON.parse(text);
+            } catch {
+                console.error(`[forward] ${label}: non-JSON reply: ${text.slice(0, 160).replace(/\s+/g, " ")}`);
+                return false;
+            }
+            if (reply?.ok === false) {
+                console.error(`[forward] ${label}: rejected (${reply.error ?? "no reason"})`);
+                return false;
+            }
+            if (reply && "added" in reply) {
+                console.error(`[forward] ${label}: added ${reply.added}, duplicate ${reply.duplicate ?? 0}`);
+            }
             return true;
         } catch (e) {
             console.error(`[forward] ${label}: ${e.message}`);
