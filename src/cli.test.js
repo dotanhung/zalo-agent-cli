@@ -11,11 +11,11 @@ import { resolve } from "path";
 const CLI = resolve(import.meta.dirname, "index.js");
 
 /**
- * Env with a throwaway home. os.homedir() reads USERPROFILE on Windows, so HOME alone would
- * let these tests use (and connect with) the real logged-in Zalo account.
+ * Env with a throwaway home. os.homedir() reads USERPROFILE on Windows and ZALO_AGENT_HOME overrides
+ * both, so all three are set — otherwise these tests would use (and connect with) the real Zalo account.
  */
 function isolatedEnv(home) {
-    return { ...process.env, HOME: home, USERPROFILE: home };
+    return { ...process.env, HOME: home, USERPROFILE: home, ZALO_AGENT_HOME: `${home}/.zalo-agent-cli` };
 }
 
 function run(...args) {

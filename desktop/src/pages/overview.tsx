@@ -113,7 +113,7 @@ export function OverviewPage({ go }: { go: (p: Page) => void }) {
               <Row k='Tài khoản' v={a?.account?.name ?? '—'} />
               <Row k='Kết nối từ' v={ago(a?.zalo.lastConnectedAt)} />
               <Row k='Số lần nối lại' v={a?.zalo.reconnectCount ?? '—'} />
-              <Row k='Nhóm & bạn bè' v={a ? `${a.threads.known} (theo dõi ${a.access.watchThreads.length})` : '—'} />
+              <Row k='Đang theo dõi' v={a ? `${a.threads.watched} cuộc trò chuyện` : '—'} />
             </Tile>
 
             <Tile

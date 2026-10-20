@@ -1,6 +1,7 @@
-import { describe, it } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { buildStatus, buildThreads } from "./admin-routes.js";
+import { createHTTPApp } from "./mcp-http-transport.js";
 import { ThreadFilter } from "./thread-filter.js";
 import { ThreadNameCache } from "./thread-name-cache.js";
 import { MessageForwarder } from "./forwarder.js";
@@ -13,42 +14,55 @@ function cache() {
     return c;
 }
 
-describe("admin-routes", () => {
-    it("lists threads with watch/send flags, groups first", () => {
-        const config = { watchThreads: ["group:g1"], sendThreads: ["group:g1"], readOnly: false };
-        const threads = buildThreads({ config, filter: new ThreadFilter(config), nameCache: cache() });
+function deps(config) {
+    return {
+        config,
+        filter: new ThreadFilter(config),
+        nameCache: cache(),
+        buffer: { getStats: () => [] },
+        runtime: { lastConnectedAt: 0, reconnectCount: 0, forwarder: null },
+    };
+}
+
+describe("admin-routes data", () => {
+    it("lists only watched threads, with their send flag", () => {
+        const config = { watchThreads: ["group:g1", "dm:u1"], sendThreads: ["group:g1"], readOnly: false };
+        const threads = buildThreads(deps(config));
         assert.deepEqual(
-            threads.map((t) => [t.threadId, t.watched, t.sendable]),
+            threads.map((t) => [t.threadId, t.sendable]),
             [
-                ["g1", true, true],
-                ["g2", false, false],
-                ["u1", false, false],
+                ["g1", true],
+                ["u1", false],
             ],
         );
+        assert.ok(!JSON.stringify(threads).includes("An toàn"), "unwatched thread name must not leak");
     });
 
     it("marks nothing sendable in read-only mode", () => {
         const config = { watchThreads: ["group:*"], sendThreads: ["group:*"], readOnly: true };
-        const threads = buildThreads({ config, filter: new ThreadFilter(config), nameCache: cache() });
-        assert.ok(threads.every((t) => !t.sendable));
+        assert.ok(buildThreads(deps(config)).every((t) => !t.sendable));
     });
 
-    it("reports status without leaking the forward token", () => {
+    it("reports status without the forward token or unwatched thread counts", () => {
         const config = {
             watchThreads: ["group:g1"],
             sendThreads: [],
             readOnly: true,
             forward: { url: "https://script.google.com/macros/s/X/exec", token: "s3cret-token" },
         };
-        const forwarder = new MessageForwarder(config.forward, async () => ({ ok: true, text: async () => "{}" }));
-        const runtime = { lastConnectedAt: 123, reconnectCount: 2, forwarder };
-        const s = buildStatus({ config, nameCache: cache(), runtime });
+        const d = deps(config);
+        d.runtime = {
+            lastConnectedAt: 123,
+            reconnectCount: 2,
+            forwarder: new MessageForwarder(config.forward, async () => ({ ok: true, text: async () => "{}" })),
+        };
+        const s = buildStatus(d);
         assert.equal(s.zalo.connected, true);
         assert.equal(s.zalo.reconnectCount, 2);
         assert.equal(s.sheets.enabled, true);
         assert.equal(s.sheets.host, "script.google.com");
         assert.equal(s.access.readOnly, true);
-        assert.equal(s.threads.known, 3);
+        assert.equal(s.threads.watched, 1);
         assert.ok(!JSON.stringify(s).includes("s3cret-token"));
     });
 
@@ -64,5 +78,78 @@ describe("admin-routes", () => {
         assert.equal(f.stats.okCount, 1);
         assert.equal(f.stats.failCount, 1);
         assert.equal(f.stats.lastError, "rejected (unauthorized)");
+    });
+});
+
+describe("admin-routes over HTTP", () => {
+    const TOKEN = "a".repeat(64);
+    const config = { watchThreads: ["group:g1"], sendThreads: [], readOnly: true };
+    let server;
+    let base;
+
+    before(async () => {
+        const app = createHTTPApp(() => {}, deps(config), TOKEN, "127.0.0.1");
+        server = await new Promise((resolve) => {
+            const s = app.listen(0, "127.0.0.1", () => resolve(s));
+        });
+        base = `http://127.0.0.1:${server.address().port}`;
+    });
+    after(() => server.close());
+
+    for (const route of ["/admin/status", "/admin/threads"]) {
+        it(`${route}: 401 without a token`, async () => {
+            assert.equal((await fetch(base + route)).status, 401);
+        });
+        it(`${route}: 401 with a wrong token`, async () => {
+            const res = await fetch(base + route, { headers: { Authorization: `Bearer ${"b".repeat(64)}` } });
+            assert.equal(res.status, 401);
+        });
+        it(`${route}: 401 with the token but no Bearer scheme`, async () => {
+            assert.equal((await fetch(base + route, { headers: { Authorization: TOKEN } })).status, 401);
+        });
+        it(`${route}: 200 with the right token`, async () => {
+            const res = await fetch(base + route, { headers: { Authorization: `Bearer ${TOKEN}` } });
+            assert.equal(res.status, 200);
+        });
+    }
+
+    it("/health needs no token", async () => {
+        assert.equal((await fetch(`${base}/health`)).status, 200);
+    });
+
+    it("/admin/threads returns watched threads only", async () => {
+        const res = await fetch(`${base}/admin/threads`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+        const { threads } = await res.json();
+        assert.deepEqual(
+            threads.map((t) => t.threadId),
+            ["g1"],
+        );
+    });
+
+    it("does not mount /admin without a token", async () => {
+        const app = createHTTPApp(() => {}, deps(config), null, "127.0.0.1");
+        const s = await new Promise((resolve) => {
+            const x = app.listen(0, "127.0.0.1", () => resolve(x));
+        });
+        try {
+            assert.equal((await fetch(`http://127.0.0.1:${s.address().port}/admin/status`)).status, 404);
+        } finally {
+            s.close();
+        }
+    });
+
+    it("does not mount /admin on a non-loopback bind address", async () => {
+        const app = createHTTPApp(() => {}, deps(config), TOKEN, "0.0.0.0");
+        const s = await new Promise((resolve) => {
+            const x = app.listen(0, "127.0.0.1", () => resolve(x));
+        });
+        try {
+            const res = await fetch(`http://127.0.0.1:${s.address().port}/admin/status`, {
+                headers: { Authorization: `Bearer ${TOKEN}` },
+            });
+            assert.equal(res.status, 404);
+        } finally {
+            s.close();
+        }
     });
 });

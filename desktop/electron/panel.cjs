@@ -4,24 +4,52 @@
  * ~/.zalo-agent-cli/mcp-config.json, checks the Google Sheets endpoint and wires Claude Code.
  *
  * Rules: never return secrets to the renderer (only the last 4 chars), never delete files
- * (config writes keep a timestamped .bak copy), never touch anything outside ~/.zalo-agent-cli.
+ * (config writes keep a timestamped .bak copy), never touch anything outside the data dir
+ * (%ZALO_AGENT_HOME%, default ~/.zalo-agent-cli). Never log in to Zalo itself — the service
+ * owns the only Zalo session.
  */
 
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
-const { spawn } = require("child_process");
+const { spawn, execFileSync } = require("child_process");
 
 const PORT = 3847;
 const BASE = `http://127.0.0.1:${PORT}`;
 
-function paths(home = os.homedir()) {
-    const cfgDir = path.join(home, ".zalo-agent-cli");
+/**
+ * Data dir, same rule as the CLI: $ZALO_AGENT_HOME or ~/.zalo-agent-cli.
+ * A shortcut started before move-to-g.ps1 set the variable will not have it in its
+ * environment yet, so fall back to the user-level value in the registry (Windows).
+ */
+function dataHome(env = process.env, readUserEnv = readWindowsUserEnv) {
+    const v = env.ZALO_AGENT_HOME?.trim() || readUserEnv("ZALO_AGENT_HOME");
+    return v || path.join(os.homedir(), ".zalo-agent-cli");
+}
+
+function readWindowsUserEnv(name) {
+    if (process.platform !== "win32") return null;
+    try {
+        const out = execFileSync("reg", ["query", "HKCU\\Environment", "/v", name], {
+            encoding: "utf8",
+            windowsHide: true,
+            stdio: ["ignore", "pipe", "ignore"],
+        });
+        return /REG_(?:EXPAND_)?SZ\s+(.+)/.exec(out)?.[1]?.trim() || null;
+    } catch {
+        return null;
+    }
+}
+
+let cachedHome = null;
+
+function paths(cfgDir = (cachedHome ??= dataHome())) {
     const svcDir = path.join(cfgDir, "service");
     return {
         cfgDir,
         svcDir,
+        desktopDir: path.join(cfgDir, "desktop"),
         configFile: path.join(cfgDir, "mcp-config.json"),
         tokenFile: path.join(svcDir, "http-token.txt"),
         serviceLog: path.join(svcDir, "mcp-http.log"),
@@ -71,11 +99,19 @@ function publicConfig(cfg) {
 
 const PATTERN = /^(group|dm):(\*|[0-9]+)$/;
 
-function validateAccess(input) {
+/**
+ * @param {object} input - { watchThreads: string[], sendThreads: string[]|null, readOnly: boolean }
+ * @param {object} [current] - config on disk; a send wildcard ("group:*") is only kept if it is already there
+ */
+function validateAccess(input, current = {}) {
     const errors = [];
     const lists = {};
     for (const key of ["watchThreads", "sendThreads"]) {
         const v = input[key];
+        if (key === "sendThreads" && v === null) {
+            lists.sendThreads = null; // keep "same as watchThreads" semantics
+            continue;
+        }
         if (!Array.isArray(v)) {
             errors.push(`${key} phải là danh sách`);
             continue;
@@ -86,9 +122,16 @@ function validateAccess(input) {
     }
     if (typeof input.readOnly !== "boolean") errors.push("readOnly phải là true/false");
     if (errors.length) throw new Error(errors.join("; "));
-    // Sending is only meaningful inside the watched set
-    const notWatched = lists.sendThreads.filter((s) => !lists.watchThreads.includes(s));
-    if (notWatched.length) throw new Error(`Nhóm được gửi phải nằm trong nhóm theo dõi: ${notWatched.join(", ")}`);
+    if (lists.sendThreads) {
+        // The panel never offers "send to every group": a wildcard may only survive from the existing config
+        const had = new Set(current.sendThreads ?? current.watchThreads ?? []);
+        const newWild = lists.sendThreads.filter((s) => s.endsWith(":*") && !had.has(s));
+        if (newWild.length) throw new Error(`Không cho phép gửi tới mọi nhóm/mọi người: ${newWild.join(", ")}`);
+        // Sending is only meaningful inside the watched set
+        const watched = new Set(lists.watchThreads);
+        const notWatched = lists.sendThreads.filter((s) => !watched.has(s) && !watched.has(`${s.split(":")[0]}:*`));
+        if (notWatched.length) throw new Error(`Nhóm được gửi phải nằm trong nhóm theo dõi: ${notWatched.join(", ")}`);
+    }
     return { watchThreads: lists.watchThreads, sendThreads: lists.sendThreads, readOnly: input.readOnly };
 }
 
@@ -107,8 +150,8 @@ function writeConfig(next, p = paths(), now = new Date()) {
 }
 
 function saveAccess(input, p = paths()) {
-    const access = validateAccess(input);
     const cfg = readConfig(p);
+    const access = validateAccess(input, cfg);
     return writeConfig({ ...cfg, ...access }, p);
 }
 
@@ -287,6 +330,7 @@ async function connectClaude(p = paths()) {
 
 module.exports = {
     PORT,
+    dataHome,
     paths,
     tail4,
     fingerprint,

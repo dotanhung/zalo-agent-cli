@@ -107,6 +107,19 @@ desktop/
 src/commands/mcp.js       (sửa: tách phần khởi động thành src/mcp/service.js để desktop gọi)
 ```
 
+## 5b. Ràng buộc bắt buộc trước khi gộp (bàn giao 2026-10-20)
+
+| Ràng buộc | Cách đáp ứng |
+|---|---|
+| `/admin/*` đòi Bearer như `/mcp`, chỉ `/health` miễn | Middleware toàn cục + router `/admin` tự kiểm token lần nữa; chỉ gắn khi có token **và** bind loopback. Test 401 cho thiếu token / sai token / thiếu chữ `Bearer` (`src/mcp/admin-routes.test.js`) |
+| Dịch vụ chỉ nghe 127.0.0.1 | Mặc định `--host 127.0.0.1`; `/admin` không tồn tại nếu bind địa chỉ khác (có test) |
+| Admin chỉ trả dữ liệu thread trong watchThreads | `/admin/threads` lọc bằng `ThreadFilter`; `/admin/status` chỉ đếm thread đang theo dõi, không lộ tên/số lượng thread khác |
+| Desktop không tự đăng nhập Zalo song song | Phần mềm không nạp zca-js. Quét QR (bản 0.2): dừng dịch vụ → `zalo-agent login` → `restart-service.ps1` |
+| Dữ liệu Electron dưới `%ZALO_AGENT_HOME%\desktop` | `app.setPath(userData/sessionData/crashDumps)` + `setAppLogsPath` trước `ready`; `ZALO_AGENT_HOME` đọc từ môi trường hoặc `HKCU\Environment` |
+| Mã bí mật bằng safeStorage, không in token | Phần mềm hiện không tự lưu bí mật nào (token Sheet nằm trong `mcp-config.json` vì dịch vụ Node cần đọc). Bí mật riêng của phần mềm sau này (vd. mã PIN) dùng `safeStorage`. Log/kết quả lệnh đều che chuỗi ≥40 ký tự; giao diện chỉ hiện 4 ký tự cuối |
+| Không có lựa chọn "gửi mọi nhóm" | UI chỉ có công tắc *theo dõi* mọi nhóm; `validateAccess` từ chối wildcard gửi mới (chỉ giữ nếu đã có sẵn); `sendThreads: null` được giữ nguyên |
+| Dịch vụ chỉ chạy từ RUNTIME (bản main) | Không cài dịch vụ từ thư mục DESKTOP nữa; dùng `scripts/windows/move-to-g.ps1` (RUNTIME + DATA). Phần mềm chỉ thấy đủ dữ liệu sau khi PR này vào main và RUNTIME cập nhật |
+
 ## 6. An toàn
 
 | Quy tắc | Cách làm |

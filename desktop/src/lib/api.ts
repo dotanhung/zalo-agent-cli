@@ -14,7 +14,7 @@ export type AdminStatus = {
     lastError?: string | null
   }
   access: { readOnly: boolean; watchThreads: string[]; sendThreads: string[] | null }
-  threads: { known: number; withHistory: number }
+  threads: { watched: number; withHistory: number }
 }
 
 export type Status = {
@@ -88,7 +88,7 @@ export const api = {
   status: () => call<Status>('status'),
   threads: () => call<Thread[]>('threads'),
   config: () => call<PublicConfig>('config:get'),
-  saveAccess: (a: { watchThreads: string[]; sendThreads: string[]; readOnly: boolean }) =>
+  saveAccess: (a: { watchThreads: string[]; sendThreads: string[] | null; readOnly: boolean }) =>
     call<{ backup: string | null; restart: RunResult }>('access:save', a),
   saveSheetsUrl: (url: string) => call<RunResult>('sheets:saveUrl', url),
   newSheetsToken: () => call<{ tail: string; copied: boolean; restart: RunResult }>('sheets:newToken'),

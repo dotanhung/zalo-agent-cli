@@ -19,7 +19,7 @@ export function SafetyPage() {
 
   const setReadOnly = async (readOnly: boolean) => {
     const c = config.data!
-    const r = await api.saveAccess({ watchThreads: c.watchThreads, sendThreads: c.sendThreads ?? c.watchThreads, readOnly })
+    const r = await api.saveAccess({ watchThreads: c.watchThreads, sendThreads: c.sendThreads, readOnly })
     r.restart.ok
       ? toast.success(readOnly ? 'Đã BẬT chỉ đọc — AI không gửi được tin' : 'Đã TẮT chỉ đọc — AI được gửi tin vào nhóm cho phép')
       : toast.warning('Đã lưu, nhưng khởi động lại dịch vụ chưa thành công')

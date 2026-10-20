@@ -10,6 +10,15 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, clipboard, shell }
 const panel = require("./panel.cjs");
 const { dotPng, COLORS } = require("./tray-icon.cjs");
 
+// Keep every Electron file (userData, cache, logs, crash dumps) under %ZALO_AGENT_HOME%\desktop,
+// never in C:\Users\...\AppData. Must run before app "ready".
+const DESKTOP_DIR = panel.paths().desktopDir;
+fs.mkdirSync(DESKTOP_DIR, { recursive: true });
+app.setPath("userData", DESKTOP_DIR);
+app.setPath("sessionData", path.join(DESKTOP_DIR, "session"));
+app.setPath("crashDumps", path.join(DESKTOP_DIR, "crash"));
+app.setAppLogsPath(path.join(DESKTOP_DIR, "logs"));
+
 const DEV_URL = process.env.ZALO_PANEL_DEV_URL || null;
 const START_HIDDEN = process.argv.includes("--hidden");
 

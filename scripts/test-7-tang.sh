@@ -38,12 +38,13 @@ layer2() { # Đơn vị + tích hợp giả lập (node:test, Zalo API giả)
     local out
     out=$(npm test 2>&1)
     local pass fail
-    pass=$(echo "$out" | sed -n 's/^# pass //p')
-    fail=$(echo "$out" | sed -n 's/^# fail //p')
+    # TAP ("# pass N") or the spec reporter Node 23+ uses even when piped ("ℹ pass N")
+    pass=$(echo "$out" | sed -n -E 's/^(# |ℹ )pass //p' | tail -1)
+    fail=$(echo "$out" | sed -n -E 's/^(# |ℹ )fail //p' | tail -1)
     if [ "${fail:-1}" = "0" ]; then
         record 2 "Đơn vị + tích hợp" PASS "${pass} bài đạt"
     else
-        echo "$out" | grep -E "^not ok|AssertionError" | head -20 >&2
+        echo "$out" | grep -E "^not ok|✖|AssertionError" | head -20 >&2
         record 2 "Đơn vị + tích hợp" FAIL "${fail:-?} bài trượt"
     fi
 }

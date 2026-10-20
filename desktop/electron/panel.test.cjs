@@ -10,7 +10,7 @@ let home;
 let p;
 beforeEach(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), "zalo-panel-"));
-    p = panel.paths(home);
+    p = panel.paths(path.join(home, ".zalo-agent-cli"));
 });
 
 function writeCfg(obj) {
@@ -33,6 +33,36 @@ describe("config", () => {
         const cfg = panel.readConfig(p);
         assert.deepEqual(cfg.watchThreads, ["group:1", "group:2"]);
         assert.equal(cfg.forward.token, "t");
+    });
+
+    it("keeps sendThreads null (= same as watched)", () => {
+        writeCfg({ watchThreads: ["group:1"], sendThreads: null });
+        panel.saveAccess({ watchThreads: ["group:1", "group:2"], sendThreads: null, readOnly: true }, p);
+        assert.equal(panel.readConfig(p).sendThreads, null);
+    });
+
+    it("never adds a new send-to-everyone wildcard, but keeps an existing one", () => {
+        assert.throws(
+            () => panel.validateAccess({ watchThreads: ["group:*"], sendThreads: ["group:*"], readOnly: false }, { watchThreads: ["group:1"], sendThreads: [] }),
+            /mọi nhóm/,
+        );
+        const kept = panel.validateAccess(
+            { watchThreads: ["group:*"], sendThreads: ["group:*"], readOnly: false },
+            { watchThreads: ["group:*"], sendThreads: ["group:*"] },
+        );
+        assert.deepEqual(kept.sendThreads, ["group:*"]);
+    });
+
+    it("allows sending to a thread covered by a watch wildcard", () => {
+        const r = panel.validateAccess({ watchThreads: ["group:*"], sendThreads: ["group:5"], readOnly: false });
+        assert.deepEqual(r.sendThreads, ["group:5"]);
+    });
+
+    it("resolves the data dir from ZALO_AGENT_HOME, then the user registry, then the home dir", () => {
+        assert.equal(panel.dataHome({ ZALO_AGENT_HOME: "G:\DATA" }, () => "X"), "G:\DATA");
+        assert.equal(panel.dataHome({}, () => "G:\FROM_REG"), "G:\FROM_REG");
+        assert.equal(panel.dataHome({}, () => null), path.join(os.homedir(), ".zalo-agent-cli"));
+        assert.equal(panel.paths("G:\DATA").desktopDir, path.join("G:\DATA", "desktop"));
     });
 
     it("rejects bad patterns and send-without-watch", () => {
