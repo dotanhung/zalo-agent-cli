@@ -68,7 +68,7 @@ layer4() { # Bảo mật: lỗ hổng thư viện, file bí mật bị commit, k
         ok=0; notes+=("npm audit có lỗ hổng high/critical")
     fi
     local leaked
-    leaked=$(git ls-files | grep -E '(^|/)(cred_[^/]*\.json|\.env(\..*)?|[^/]*\.pem|[^/]*\.key|mcp-send-log\.jsonl)$' || true)
+    leaked=$(git ls-files | grep -E '(^|/)(cred_[^/]*\.json|\.env(\..*)?|[^/]*\.pem|[^/]*\.key|mcp-send-log\.jsonl|http-token\.txt|run-hidden\.vbs)$' || true)
     if [ -n "$leaked" ]; then
         ok=0; notes+=("file bí mật trong git: $(echo "$leaked" | tr '\n' ' ')")
     fi
