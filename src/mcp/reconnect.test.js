@@ -1,6 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { reconnectDelay, RECONNECT_BASE_MS, RECONNECT_MAX_MS } from "./reconnect.js";
+import {
+    reconnectDelay,
+    reloginUntilSuccess,
+    RECONNECT_BASE_MS,
+    RECONNECT_MAX_MS,
+    RELOGIN_BASE_MS,
+} from "./reconnect.js";
 
 describe("reconnectDelay", () => {
     it("uses the base delay for the first close (0 or 1)", () => {
@@ -37,5 +43,53 @@ describe("reconnectDelay", () => {
         assert.equal(reconnectDelay(undefined), RECONNECT_BASE_MS);
         assert.equal(reconnectDelay(NaN), RECONNECT_BASE_MS);
         assert.equal(reconnectDelay(-5), RECONNECT_BASE_MS);
+    });
+});
+
+describe("reloginUntilSuccess", () => {
+    it("keeps retrying with growing waits instead of giving up, until a login works", async () => {
+        const waits = [];
+        let calls = 0;
+        const failures = await reloginUntilSuccess(
+            async () => {
+                calls++;
+                if (calls < 5) throw new Error("Not logged in");
+            },
+            { sleep: async (ms) => waits.push(ms), log: () => {} },
+        );
+        assert.equal(failures, 4);
+        assert.deepEqual(waits, [RELOGIN_BASE_MS, RELOGIN_BASE_MS * 2, RELOGIN_BASE_MS * 4, RELOGIN_BASE_MS * 8]);
+    });
+
+    it("caps the wait at RECONNECT_MAX_MS", async () => {
+        const waits = [];
+        let calls = 0;
+        await reloginUntilSuccess(
+            async () => {
+                if (++calls < 12) throw new Error("down");
+            },
+            { sleep: async (ms) => waits.push(ms), log: () => {} },
+        );
+        assert.equal(Math.max(...waits), RECONNECT_MAX_MS);
+    });
+
+    it("stops retrying when shutting down", async () => {
+        let stopped = false;
+        let calls = 0;
+        const failures = await reloginUntilSuccess(
+            async () => {
+                calls++;
+                throw new Error("down");
+            },
+            {
+                sleep: async () => {
+                    stopped = true;
+                },
+                isStopped: () => stopped,
+                log: () => {},
+            },
+        );
+        assert.equal(calls, 1);
+        assert.equal(failures, 1);
     });
 });
