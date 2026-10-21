@@ -13,7 +13,7 @@
  * 17h mỗi ngày → email các việc chưa xong ở trang "Việc cần làm".
  */
 
-const SCRIPT_VERSION = '5';
+const SCRIPT_VERSION = '6';
 const TASK_SHEET = 'Việc cần làm';
 const TASK_STATUSES = ['Chưa làm', 'Đang làm', 'Xong'];
 const DIGEST_HOUR = 17; // giờ gửi email tóm tắt việc mỗi ngày
@@ -100,6 +100,7 @@ function doPost(e) {
     if (rows.length > 0) {
       sh.getRange(sh.getLastRow() + 1, 1, rows.length, HEADERS.length).setValues(rows);
       addTasks_(rows);
+      PropertiesService.getScriptProperties().setProperty('LAST_ROW_AT', String(Date.now()));
     }
     return json_({ ok: true, added: rows.length, duplicate: valid.length - rows.length });
   } finally {
@@ -158,16 +159,24 @@ function saveHeartbeat_(hb) {
     lastConnectedAt: Number(hb.lastConnectedAt) || null,
     reconnectCount: Number(hb.reconnectCount) || 0,
   };
-  PropertiesService.getScriptProperties().setProperty('LAST_HEARTBEAT', JSON.stringify(beat));
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('LAST_HEARTBEAT', JSON.stringify(beat));
+  const lastRowAt = Number(props.getProperty('LAST_ROW_AT')) || 0;
+  const watchdog = ScriptApp.getProjectTriggers().some(function (tr) { return tr.getHandlerFunction() === 'checkHeartbeat'; });
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(STATUS_SHEET) || ss.insertSheet(STATUS_SHEET);
-  sh.getRange(1, 1, 5, 2).setValues([
+  sh.getRange(1, 1, 7, 2).setValues([
     ['Nhịp tim gần nhất', new Date(beat.receivedAt)],
     ['Zalo đang kết nối', beat.zaloConnected ? 'Có' : 'KHÔNG'],
     ['Dịch vụ chạy liên tục (giờ)', Math.round(beat.uptimeSec / 360) / 10],
     ['Số lần kết nối lại', beat.reconnectCount],
+    ['Tin gần nhất ghi vào Sheet', lastRowAt ? new Date(lastRowAt) : 'chưa có'],
+    ['Email cảnh báo (setupWatchdog)', watchdog ? 'Đã bật' : 'CHƯA BẬT — chạy setupWatchdog'],
     ['Cảnh báo khi im lặng quá (phút)', ALERT_AFTER_MIN],
   ]);
+  // Ô ngày giờ: hiện cả giờ (mặc định Sheets chỉ hiện ngày)
+  sh.getRange('B1').setNumberFormat('dd/MM/yyyy HH:mm:ss');
+  sh.getRange('B5').setNumberFormat('dd/MM/yyyy HH:mm:ss');
 }
 
 /** Chạy theo lịch 10 phút: email khi bot im lặng / mất Zalo, và khi hoạt động lại. */

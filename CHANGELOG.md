@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Sheets status page shows times** — `Code.gs` v6: the **Trạng thái** sheet formats the last heartbeat with the time (it showed only the date, so a stop could not be dated) and adds the time of the last row written and whether `setupWatchdog` is on.
 - **`/admin/threads` lists every group** — the desktop "Nhóm theo dõi" page only received watched threads, so after saving a short list the other groups vanished and could only be re-added by typing their id. It now returns all groups (name, id, member count) with `watched` / `sendable` flags; unwatched DMs stay hidden, and the AI-facing MCP tools still hide unwatched threads entirely. `status.threads.watched` counts watched threads only.
 
 ### Fixed
