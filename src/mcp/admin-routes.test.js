@@ -25,17 +25,27 @@ function deps(config) {
 }
 
 describe("admin-routes data", () => {
-    it("lists only watched threads, with their send flag", () => {
+    it("lists every group (unwatched ones unticked) but only watched DMs", () => {
         const config = { watchThreads: ["group:g1", "dm:u1"], sendThreads: ["group:g1"], readOnly: false };
         const threads = buildThreads(deps(config));
         assert.deepEqual(
-            threads.map((t) => [t.threadId, t.sendable]),
+            threads.map((t) => [t.threadId, t.watched, t.sendable]),
             [
-                ["g1", true],
-                ["u1", false],
+                ["g1", true, true],
+                ["g2", false, false],
+                ["u1", true, false],
             ],
         );
-        assert.ok(!JSON.stringify(threads).includes("An toàn"), "unwatched thread name must not leak");
+    });
+
+    it("hides unwatched DMs and never marks an unwatched group sendable", () => {
+        const config = { watchThreads: ["group:g1"], sendThreads: null, readOnly: false };
+        const threads = buildThreads(deps(config));
+        assert.ok(!JSON.stringify(threads).includes("Linh"), "unwatched friend name must not leak");
+        assert.deepEqual(
+            threads.filter((t) => t.sendable).map((t) => t.threadId),
+            ["g1"],
+        );
     });
 
     it("marks nothing sendable in read-only mode", () => {
@@ -43,7 +53,7 @@ describe("admin-routes data", () => {
         assert.ok(buildThreads(deps(config)).every((t) => !t.sendable));
     });
 
-    it("reports status without the forward token or unwatched thread counts", () => {
+    it("reports status without the forward token, counting watched threads only", () => {
         const config = {
             watchThreads: ["group:g1"],
             sendThreads: [],
@@ -117,12 +127,15 @@ describe("admin-routes over HTTP", () => {
         assert.equal((await fetch(`${base}/health`)).status, 200);
     });
 
-    it("/admin/threads returns watched threads only", async () => {
+    it("/admin/threads returns all groups with their watched flag, no unwatched DM", async () => {
         const res = await fetch(`${base}/admin/threads`, { headers: { Authorization: `Bearer ${TOKEN}` } });
         const { threads } = await res.json();
         assert.deepEqual(
-            threads.map((t) => t.threadId),
-            ["g1"],
+            threads.map((t) => [t.threadId, t.watched]),
+            [
+                ["g1", true],
+                ["g2", false],
+            ],
         );
     });
 

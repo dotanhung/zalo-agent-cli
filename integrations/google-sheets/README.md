@@ -20,7 +20,8 @@ Sửa `Code.gs`: **Quản lý bản triển khai → ✏️ → Phiên bản m�
 ## Cảnh báo bot chết (một lần, ~1 phút)
 
 Dịch vụ gửi **nhịp tim** mỗi 15 phút (`forward.heartbeat`, `"0"` = tắt) vào cùng địa chỉ; trang **Trạng thái**
-trong Sheet hiện lần cuối, Zalo có kết nối không, số lần kết nối lại.
+trong Sheet hiện giờ nhịp tim cuối, Zalo có kết nối không, số lần kết nối lại, giờ tin gần nhất ghi vào Sheet và
+email cảnh báo đã bật chưa (bản 6).
 
 Bật email cảnh báo: trong Apps Script chọn hàm **setupWatchdog** ở thanh trên → **Chạy** → cấp quyền
 (gửi email, chạy theo lịch). Từ đó cứ 10 phút kiểm tra; **quá 30 phút** không có nhịp tim, hoặc Zalo mất kết nối
@@ -31,7 +32,9 @@ Trang kiểm tra (`doGet`) hiện `lastHeartbeat` và `watchdog: true` khi đã 
 
 Tin có dạng **giao việc / phiếu chi, lương / hợp đồng, báo giá / cần xác nhận** (nhận theo từ khóa trong
 `TASK_RULES`, không dùng AI) tự được chép sang trang **Việc cần làm** với cột **Trạng thái** (Chưa làm / Đang làm /
-Xong). `setupWatchdog` cũng bật email **17h mỗi ngày** liệt kê việc chưa "Xong". Chỉ đọc và ghi Sheet — không gửi gì
+Xong). `setupWatchdog` cũng bật email **17h mỗi ngày** liệt kê việc chưa "Xong", và từ bản 7 thêm **báo cáo 7h sáng**:
+tình trạng bot, số tin 24 giờ qua theo nhóm, việc mới nhận ra, tổng việc chưa xong (luôn gửi, kể cả khi không có tin).
+Dán bản mới xong phải **chạy lại `setupWatchdog`** một lần để có lịch 7h. Chỉ đọc và ghi Sheet — không gửi gì
 vào Zalo. Muốn Claude tổng hợp có ngữ cảnh: skill `bao-cao-viec-zalo`.
 
 ## 2. Khai báo trong mcp-config.json

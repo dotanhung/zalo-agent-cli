@@ -23,6 +23,7 @@ function makeSheet() {
                 .map((r) =>
                     r.slice(col - 1).map((v) => String(v instanceof Date ? v.toISOString() : v).replace(/^'/, "")),
                 ),
+        getValues: () => rows.slice(row - 1, row - 1 + numRows).map((r) => r.slice(col - 1)),
         setValues: (vals) => vals.forEach((v, i) => (rows[row - 1 + i] = v)),
     });
     return {
@@ -49,6 +50,7 @@ function load(token, { now = () => Date.now() } = {}) {
         SpreadsheetApp: {
             getActiveSpreadsheet: () => ({
                 getName: () => "ZALO LOG",
+                getSpreadsheetTimeZone: () => "Asia/Ho_Chi_Minh",
                 getSheetByName: (n) => sheets[n] ?? null,
                 insertSheet: (n) => (sheets[n] = makeSheet()),
             }),
@@ -78,6 +80,8 @@ function load(token, { now = () => Date.now() } = {}) {
             DigestAlgorithm: { SHA_256: "sha256" },
             Charset: { UTF_8: "utf8" },
             // Apps Script returns signed bytes
+            formatDate: (d) =>
+                d.toISOString().slice(8, 10) + "/" + d.toISOString().slice(5, 7) + " " + d.toISOString().slice(11, 16),
             computeDigest: (_alg, str) =>
                 [...createHash("sha256").update(str, "utf8").digest()].map((b) => (b > 127 ? b - 256 : b)),
         },
@@ -148,7 +152,7 @@ describe("Code.gs doPost", () => {
     it("doGet reports version, sheet and a fingerprint matching SHA-256 of the token", () => {
         const g = s.get();
         assert.equal(g.ok, true);
-        assert.equal(g.version, "5");
+        assert.equal(g.version, "7");
         assert.equal(g.spreadsheet, "ZALO LOG");
         assert.equal(g.tokenSet, true);
         assert.equal(g.tokenFingerprint, createHash("sha256").update("s3cret").digest("hex").slice(0, 8));
@@ -199,6 +203,19 @@ describe("Code.gs doPost", () => {
         assert.equal(s.get().lastHeartbeat.zaloConnected, true);
     });
 
+    it("status sheet shows the last row time and whether the watchdog is on", () => {
+        s.post({ token: "s3cret", heartbeat: { zaloConnected: true } });
+        const label = (k) => s.status.find((r) => r[0] === k)?.[1];
+        assert.equal(label("Tin gần nhất ghi vào Sheet"), "chưa có");
+        assert.match(label("Email cảnh báo (setupWatchdog)"), /CHƯA BẬT/);
+
+        s.post({ token: "s3cret", message: MSG });
+        s.ctx.setupWatchdog();
+        s.post({ token: "s3cret", heartbeat: { zaloConnected: true } });
+        assert.ok(label("Tin gần nhất ghi vào Sheet") instanceof Date);
+        assert.equal(label("Email cảnh báo (setupWatchdog)"), "Đã bật");
+    });
+
     it("rejects a heartbeat with a wrong token", () => {
         assert.equal(s.post({ token: "nope", heartbeat: {} }).ok, false);
         assert.equal(s.props.has("LAST_HEARTBEAT"), false);
@@ -236,7 +253,7 @@ describe("Code.gs watchdog", () => {
         w.ctx.setupWatchdog();
         assert.deepEqual(
             w.triggers.map((t) => t.getHandlerFunction()),
-            ["checkHeartbeat", "sendDailyDigest"],
+            ["checkHeartbeat", "sendMorningReport", "sendDailyDigest"],
         );
         assert.equal(w.get().watchdog, true);
     });
@@ -289,5 +306,36 @@ describe("Code.gs tasks (Việc cần làm)", () => {
         const w = load("s3cret");
         assert.equal(w.ctx.sendDailyDigest(), 0);
         assert.equal(w.mails.length, 0);
+    });
+});
+
+describe("Code.gs morning report", () => {
+    const NOW = Date.UTC(2026, 9, 21, 0, 0);
+    const at = (id, text, ms, threadName = "100 BOT HCNS") => ({ ...MSG, msgId: id, text, timestamp: ms, threadName });
+
+    it("counts the last 24 h per group, lists new tasks and the bot state", () => {
+        const w = load("s3cret", { now: () => NOW });
+        w.post({
+            token: "s3cret",
+            messages: [
+                at("m1", "tin cũ hôm kia, giao việc X", NOW - 48 * 3600000),
+                at("m2", "Chào buổi tối", NOW - 3600000),
+                at("m3", "Làm phiếu chi 5 triệu", NOW - 1800000, "PHÒNG ĐẤU THẦU"),
+            ],
+        });
+        w.post({ token: "s3cret", heartbeat: { zaloConnected: true } });
+        assert.deepEqual({ ...w.ctx.sendMorningReport() }, { messages: 2, newTasks: 1, open: 2 });
+        const m = w.mails.at(-1);
+        assert.match(m.subject, /2 tin, 1 việc mới/);
+        assert.match(m.body, /Zalo đang kết nối/);
+        assert.match(m.body, /- 100 BOT HCNS: 1/);
+        assert.match(m.body, /PHÒNG ĐẤU THẦU .*Làm phiếu chi/);
+        assert.doesNotMatch(m.body, /hôm kia/);
+    });
+
+    it("still sends when nothing happened, flagging a missing heartbeat", () => {
+        const w = load("s3cret", { now: () => NOW });
+        assert.equal(w.ctx.sendMorningReport().messages, 0);
+        assert.match(w.mails[0].body, /CHƯA nhận nhịp tim/);
     });
 });

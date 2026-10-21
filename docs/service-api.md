@@ -16,7 +16,8 @@ Dịch vụ: `zalo-agent mcp start --http 3847 --auth <token>`, chạy thường
 | --- | --- | --- |
 | `GET /health` | Không | `{status:"ok", uptime:<giây>, threads:<số thread có tin chờ trong buffer>}` |
 | `POST /mcp` | Có | MCP Streamable HTTP, stateless (mỗi request một server mới) |
-| `/admin/*` | Có | Chưa có trên `main` — do lane B đề xuất qua PR, phải ghi vào bảng này khi gộp |
+| `GET /admin/status` | Có | Dịch vụ, kết nối Zalo, giao Sheet, quy tắc truy cập; không trả mã bí mật. Chỉ mở khi có `--auth` và nghe loopback |
+| `GET /admin/threads` | Có | **Mọi nhóm** (tên, mã, số thành viên, `watched`, `sendable`) để phần mềm tick lại nhóm đã bỏ; tin nhắn riêng chỉ hiện khi đang theo dõi. Không trả nội dung tin. Công cụ MCP cho AI vẫn ẩn hoàn toàn thread ngoài `watchThreads` |
 
 ## Công cụ MCP
 

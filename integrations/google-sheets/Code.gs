@@ -13,10 +13,11 @@
  * 17h mỗi ngày → email các việc chưa xong ở trang "Việc cần làm".
  */
 
-const SCRIPT_VERSION = '5';
+const SCRIPT_VERSION = '7';
 const TASK_SHEET = 'Việc cần làm';
 const TASK_STATUSES = ['Chưa làm', 'Đang làm', 'Xong'];
 const DIGEST_HOUR = 17; // giờ gửi email tóm tắt việc mỗi ngày
+const MORNING_HOUR = 7; // giờ gửi báo cáo buổi sáng (tin 24 giờ qua + việc mới)
 /** Nhận diện tin là việc cần làm (theo từ khóa, không gọi AI). Thứ tự = ưu tiên. */
 const TASK_RULES = [
   { loai: 'Phiếu chi / lương', re: /phiếu chi|phiếu lương|lương ứng|tạm ứng|hoa hồng|thanh toán|chi tiền/i },
@@ -100,6 +101,7 @@ function doPost(e) {
     if (rows.length > 0) {
       sh.getRange(sh.getLastRow() + 1, 1, rows.length, HEADERS.length).setValues(rows);
       addTasks_(rows);
+      PropertiesService.getScriptProperties().setProperty('LAST_ROW_AT', String(Date.now()));
     }
     return json_({ ok: true, added: rows.length, duplicate: valid.length - rows.length });
   } finally {
@@ -158,16 +160,24 @@ function saveHeartbeat_(hb) {
     lastConnectedAt: Number(hb.lastConnectedAt) || null,
     reconnectCount: Number(hb.reconnectCount) || 0,
   };
-  PropertiesService.getScriptProperties().setProperty('LAST_HEARTBEAT', JSON.stringify(beat));
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('LAST_HEARTBEAT', JSON.stringify(beat));
+  const lastRowAt = Number(props.getProperty('LAST_ROW_AT')) || 0;
+  const watchdog = ScriptApp.getProjectTriggers().some(function (tr) { return tr.getHandlerFunction() === 'checkHeartbeat'; });
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(STATUS_SHEET) || ss.insertSheet(STATUS_SHEET);
-  sh.getRange(1, 1, 5, 2).setValues([
+  sh.getRange(1, 1, 7, 2).setValues([
     ['Nhịp tim gần nhất', new Date(beat.receivedAt)],
     ['Zalo đang kết nối', beat.zaloConnected ? 'Có' : 'KHÔNG'],
     ['Dịch vụ chạy liên tục (giờ)', Math.round(beat.uptimeSec / 360) / 10],
     ['Số lần kết nối lại', beat.reconnectCount],
+    ['Tin gần nhất ghi vào Sheet', lastRowAt ? new Date(lastRowAt) : 'chưa có'],
+    ['Email cảnh báo (setupWatchdog)', watchdog ? 'Đã bật' : 'CHƯA BẬT — chạy setupWatchdog'],
     ['Cảnh báo khi im lặng quá (phút)', ALERT_AFTER_MIN],
   ]);
+  // Ô ngày giờ: hiện cả giờ (mặc định Sheets chỉ hiện ngày)
+  sh.getRange('B1').setNumberFormat('dd/MM/yyyy HH:mm:ss');
+  sh.getRange('B5').setNumberFormat('dd/MM/yyyy HH:mm:ss');
 }
 
 /** Chạy theo lịch 10 phút: email khi bot im lặng / mất Zalo, và khi hoạt động lại. */
@@ -195,15 +205,16 @@ function checkHeartbeat() {
   return problem;
 }
 
-/** Chạy MỘT lần trong trình soạn thảo: kiểm tra bot 10 phút/lần + email việc lúc 17h (chạy lại không tạo trùng). */
+/** Chạy MỘT lần trong trình soạn thảo: kiểm tra bot 10 phút/lần + báo cáo 7h + email việc 17h (chạy lại không tạo trùng). */
 function setupWatchdog() {
   ScriptApp.getProjectTriggers().forEach(function (tr) {
     const fn = tr.getHandlerFunction();
-    if (fn === 'checkHeartbeat' || fn === 'sendDailyDigest') ScriptApp.deleteTrigger(tr);
+    if (fn === 'checkHeartbeat' || fn === 'sendDailyDigest' || fn === 'sendMorningReport') ScriptApp.deleteTrigger(tr);
   });
   ScriptApp.newTrigger('checkHeartbeat').timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger('sendMorningReport').timeBased().everyDays(1).atHour(MORNING_HOUR).create();
   ScriptApp.newTrigger('sendDailyDigest').timeBased().everyDays(1).atHour(DIGEST_HOUR).create();
-  return 'Đã bật kiểm tra 10 phút/lần và email việc lúc ' + DIGEST_HOUR + 'h';
+  return 'Đã bật kiểm tra 10 phút/lần, báo cáo sáng lúc ' + MORNING_HOUR + 'h và email việc lúc ' + DIGEST_HOUR + 'h';
 }
 
 /* ---------------- Việc cần làm ---------------- */
@@ -266,4 +277,58 @@ function sendDailyDigest() {
       lines.join('\n') + (open.length > 50 ? '\n… và ' + (open.length - 50) + ' việc khác.' : '') +
       '\n\nĐổi cột Trạng thái thành "Xong" để không nhắc lại.');
   return open.length;
+}
+
+/* ---------------- Báo cáo buổi sáng ---------------- */
+
+/**
+ * Theo lịch 7h (luôn gửi, kể cả khi không có tin — để anh biết bot còn sống):
+ * tình trạng bot, số tin 24 giờ qua theo nhóm, việc mới nhận ra trong 24 giờ, tổng việc chưa xong.
+ */
+function sendMorningReport() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const now = Date.now();
+  const since = now - 24 * 3600000;
+  const hb = lastHeartbeat_();
+  const fmt = function (ms) { return Utilities.formatDate(new Date(ms), ss.getSpreadsheetTimeZone(), 'dd/MM HH:mm'); };
+
+  const perGroup = {};
+  const newTasks = [];
+  let total = 0;
+  const sh = ss.getSheetByName(SHEET_NAME);
+  if (sh && sh.getLastRow() >= 2) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 7).getValues().forEach(function (r) {
+      const t = r[0] instanceof Date ? r[0].getTime() : Number(r[0]) || 0;
+      if (t < since) return;
+      total++;
+      const group = String(r[1] || '(không tên)');
+      perGroup[group] = (perGroup[group] || 0) + 1;
+      const loai = taskType_(String(r[5]).replace(/^'/, ''));
+      if (loai) newTasks.push(fmt(t) + ' · ' + group + ' · ' + r[3] + ': [' + loai + '] ' + String(r[5]).slice(0, 200));
+    });
+  }
+  const tsh = ss.getSheetByName(TASK_SHEET);
+  const open = tsh && tsh.getLastRow() >= 2
+    ? tsh.getRange(2, 6, tsh.getLastRow() - 1, 1).getDisplayValues().filter(function (r) { return r[0] !== 'Xong'; }).length
+    : 0;
+
+  const bot = !hb
+    ? 'CHƯA nhận nhịp tim nào'
+    : 'nhịp tim cuối ' + fmt(hb.receivedAt) + (now - hb.receivedAt > ALERT_AFTER_MIN * 60000 ? ' (QUÁ ' + ALERT_AFTER_MIN + ' phút — kiểm tra máy)' : '') +
+      ', Zalo ' + (hb.zaloConnected ? 'đang kết nối' : 'KHÔNG kết nối');
+  const groups = Object.keys(perGroup).sort(function (a, b) { return perGroup[b] - perGroup[a]; })
+    .map(function (g) { return '- ' + g + ': ' + perGroup[g]; });
+  const body = [
+    'Bot: ' + bot + '.',
+    '',
+    'Tin 24 giờ qua: ' + total + (groups.length ? '\n' + groups.join('\n') : ''),
+    '',
+    'Việc mới (theo từ khóa): ' + newTasks.length + (newTasks.length ? '\n' + newTasks.slice(0, 30).join('\n') : ''),
+    'Tổng việc chưa "Xong" ở trang "' + TASK_SHEET + '": ' + open,
+    '',
+    'Sheet "' + ss.getName() + '". Chỉ đọc — không có gì được gửi vào Zalo.',
+  ].join('\n');
+  MailApp.sendEmail(Session.getEffectiveUser().getEmail(),
+    '[TQM Zalo Agent] Sáng ' + fmt(now).slice(0, 5) + ': ' + total + ' tin, ' + newTasks.length + ' việc mới', body);
+  return { messages: total, newTasks: newTasks.length, open: open };
 }

@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Morning report** — `Code.gs` v7 adds `sendMorningReport()` (scheduled by `setupWatchdog()` at 07:00): one email with the bot state from the last heartbeat, message counts for the last 24 h per group, task-like messages found in that window and the number of open tasks. Sent even when nothing happened, so silence means the script itself is not running.
 - **Tasks from messages** — `Code.gs` v5 copies task-like rows (giao việc, phiếu chi/lương, hợp đồng/báo giá, cần xác nhận; keyword rules, no AI) to a **Việc cần làm** sheet with a status dropdown, deduplicated by message id; `setupWatchdog()` also schedules a 17:00 email listing open tasks. New read-only Claude skill `bao-cao-viec-zalo` builds the same report from MCP history.
 - **OA → Google Sheets** — `zalo-agent oa listen --forward` logs customer messages (`user_send_*`) and follow/unfollow to the sheet configured in `mcp-config.json` `forward` (thread `oa:<user id>`, name "Zalo OA"). OA signature check moved to `src/core/oa-events.js` and now also accepts Zalo's documented `sha256(app_id + body + timestamp + secret)` scheme besides HMAC-SHA256(body).
 - **Dead-bot alert** — the service POSTs a heartbeat to the forward endpoint every 15 min (`forward.heartbeat`). `Code.gs` v4 stores it, shows a **Trạng thái** sheet, exposes `lastHeartbeat`/`watchdog` in `doGet`, and `setupWatchdog()` installs a 10-minute check that emails the sheet owner once when no heartbeat arrives for 30 min or Zalo is disconnected, and once when it recovers.
@@ -27,8 +28,14 @@ All notable changes to this project will be documented in this file.
 
 - **Dependencies** — bump `zca-js` to 2.2.0 and `@modelcontextprotocol/sdk` to 1.32.1, and refresh transitive deps via `npm audit fix`; `npm audit --omit=dev` now reports 0 vulnerabilities (was 13: 1 critical, 8 high).
 
+### Changed
+
+- **Sheets status page shows times** — `Code.gs` v6: the **Trạng thái** sheet formats the last heartbeat with the time (it showed only the date, so a stop could not be dated) and adds the time of the last row written and whether `setupWatchdog` is on.
+- **`/admin/threads` lists every group** — the desktop "Nhóm theo dõi" page only received watched threads, so after saving a short list the other groups vanished and could only be re-added by typing their id. It now returns all groups (name, id, member count) with `watched` / `sendable` flags; unwatched DMs stay hidden, and the AI-facing MCP tools still hide unwatched threads entirely. `status.threads.watched` counts watched threads only.
+
 ### Fixed
 
+- **`move-to-g.ps1` finished an update with its old code** — PowerShell runs the copy it loaded at start, so when the update step pulled a new version of the script itself, the rest of that run still used the old one (on 20/10 this re-applied the ACL bug fixed below). The script now re-launches itself once when its own file changed during the update.
 - **`move-to-g.ps1` left data files with an empty ACL** — `icacls /inheritance:r /grant:r ...(OI)(CI)F /t` stripped inherited rights from every file but the inheritable grants did not apply to files, so nobody (not even the owner or SYSTEM) could open them; the service exited with code 1 because it could not write `service\mcp-http.log`. The script now sets the grant on the data folder only and resets children to inherit (`icacls <dir>\* /reset /t`).
 - **Stale Zalo API after re-login** — tools (`zalo_send_message`) and the notifier kept the API object captured at startup, so after a reconnect they called a dead session. They now use `createLiveApi(getApi)`, which always forwards to the current instance.
 - **Recall events in the sheet** — `chat.undo` (message recalled) is no longer forwarded as a row.
