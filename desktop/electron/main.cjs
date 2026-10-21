@@ -22,6 +22,18 @@ app.setAppLogsPath(path.join(DESKTOP_DIR, "logs"));
 const DEV_URL = process.env.ZALO_PANEL_DEV_URL || null;
 const START_HIDDEN = process.argv.includes("--hidden");
 
+/**
+ * Windows login item for this app. Windows matches the entry by exe path AND args, so
+ * getLoginItemSettings() must be given the same { path, args } used to set it — without them it
+ * always reports false and the "Tự mở cùng Windows" switch flips back off (21/10). When run
+ * unpackaged (`electron .`), the exe is electron.exe and the app folder must be passed too.
+ */
+function loginItem() {
+    const args = ["--hidden"];
+    if (process.defaultApp && process.argv[1]) args.unshift(path.resolve(process.argv[1]));
+    return { path: process.execPath, args };
+}
+
 let win = null;
 let tray = null;
 let quitting = false;
@@ -198,14 +210,14 @@ function registerIpc() {
     handle("claude:status", () => panel.claudeStatus());
     handle("claude:connect", () => panel.connectClaude());
     handle("app:getSettings", () => ({
-        autostart: app.getLoginItemSettings().openAtLogin,
+        autostart: app.getLoginItemSettings(loginItem()).openAtLogin,
         version: app.getVersion(),
         configDir: panel.paths().cfgDir,
         packaged: app.isPackaged,
     }));
     handle("app:setAutostart", (on) => {
-        app.setLoginItemSettings({ openAtLogin: Boolean(on), args: ["--hidden"] });
-        return app.getLoginItemSettings().openAtLogin;
+        app.setLoginItemSettings({ ...loginItem(), openAtLogin: Boolean(on) });
+        return app.getLoginItemSettings(loginItem()).openAtLogin;
     });
     handle("app:openLogs", () => {
         const dir = panel.paths().svcDir;
