@@ -25,3 +25,38 @@ export function reconnectDelay(rapidCloses, base = RECONNECT_BASE_MS, max = RECO
     const exponent = Math.max(0, (Number(rapidCloses) || 0) - 1);
     return Math.min(base * 2 ** exponent, max);
 }
+
+/** First wait after a failed re-login (ms). */
+export const RELOGIN_BASE_MS = 30 * 1000;
+
+/**
+ * Keep re-logging in until it works (or `isStopped()`), waiting 30s, 60s, 120s… capped at 5 min.
+ * The service must never exit just because Zalo is briefly unreachable (21/10: a re-login at
+ * 12:33 failed twice with "Not logged in", the process exited and Sheets got nothing for 20 min).
+ * While it waits, /health and the heartbeat keep running and report Zalo as disconnected, so the
+ * Sheets watchdog emails the owner if it lasts.
+ * @param {() => Promise<void>} attempt - one re-login + listener start; throws on failure
+ * @param {object} [opts]
+ * @param {(ms: number) => Promise<void>} [opts.sleep]
+ * @param {() => boolean} [opts.isStopped]
+ * @param {(msg: string) => void} [opts.log]
+ * @returns {Promise<number>} number of failed attempts before success (or before stop)
+ */
+export async function reloginUntilSuccess(attempt, opts = {}) {
+    const sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+    const isStopped = opts.isStopped ?? (() => false);
+    const log = opts.log ?? ((m) => console.error(m));
+    let failures = 0;
+    while (!isStopped()) {
+        try {
+            await attempt();
+            return failures;
+        } catch (e) {
+            failures++;
+            const wait = reconnectDelay(failures, RELOGIN_BASE_MS);
+            log(`[mcp] Re-login failed (#${failures}): ${e.message}. Retrying in ${Math.round(wait / 1000)}s...`);
+            await sleep(wait);
+        }
+    }
+    return failures;
+}

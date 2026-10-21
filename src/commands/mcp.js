@@ -8,7 +8,7 @@
 import { getApi, autoLogin, clearSession } from "../core/zalo-client.js";
 import { MessageBuffer } from "../mcp/message-buffer.js";
 import { HistoryStore } from "../mcp/history-store.js";
-import { reconnectDelay } from "../mcp/reconnect.js";
+import { reconnectDelay, reloginUntilSuccess } from "../mcp/reconnect.js";
 import { ThreadFilter } from "../mcp/thread-filter.js";
 import { loadMCPConfig, parseDuration } from "../mcp/mcp-config.js";
 import { normalizeMessage, toHistoryMessage } from "../mcp/message-normalize.js";
@@ -340,28 +340,18 @@ export function registerMCPCommands(program) {
                             `(reconnect #${reconnectCount}, rapid #${rapidCloses})`,
                     );
                     await new Promise((r) => setTimeout(r, delay));
-                    try {
-                        clearSession();
-                        await autoLogin(true);
-                        console.error("[mcp] Re-login successful. Restarting listener...");
-                        const newApi = getApi();
-                        attachListenerHandlers(newApi);
-                        newApi.listener.start({ retryOnClose: true });
-                    } catch (e) {
-                        console.error(`[mcp] Re-login failed: ${e.message}. Retrying in 30s...`);
-                        await new Promise((r) => setTimeout(r, 30000));
-                        try {
+                    // Never exit on a failed re-login: keep the HTTP server (and heartbeat) up and retry.
+                    await reloginUntilSuccess(
+                        async () => {
                             clearSession();
                             await autoLogin(true);
-                            const retryApi = getApi();
-                            attachListenerHandlers(retryApi);
-                            retryApi.listener.start({ retryOnClose: true });
-                            console.error("[mcp] Re-login successful on retry.");
-                        } catch (e2) {
-                            console.error(`[mcp] Re-login retry failed: ${e2.message}. Exiting.`);
-                            process.exit(1);
-                        }
-                    }
+                            const newApi = getApi();
+                            attachListenerHandlers(newApi);
+                            newApi.listener.start({ retryOnClose: true });
+                            console.error("[mcp] Re-login successful. Listener restarted.");
+                        },
+                        { isStopped: () => shuttingDown },
+                    );
                 });
 
                 api.listener.on("error", () => {
