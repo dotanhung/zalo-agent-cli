@@ -14,7 +14,9 @@ Cột: Thời gian · Nhóm · Mã nhóm · Người gửi · Mã người gửi
 4. **Triển khai → Tùy chọn triển khai mới → Ứng dụng web** (Thực thi: **Tôi** · Truy cập: **Bất kỳ ai**),
    chép **URL ứng dụng web**. Chỉ giữ **một** bản triển khai.
 
-Đổi mã sau này: chỉ sửa Thuộc tính tập lệnh `TOKEN` — **không** cần dán code hay triển khai lại.
+Đổi mã sau này: chạy `scripts\windows\rotate-sheet-token.ps1` — tạo mã mới vào clipboard (không in ra), anh dán vào
+Thuộc tính tập lệnh `TOKEN`, script chờ Apps Script nhận đúng mã rồi mới ghi vào `mcp-config.json`, khởi động lại bot và
+gửi dòng thử. **Không** cần dán code hay triển khai lại. Đừng lưu mã ở nơi khác (ví dụ một trang trong Sheet).
 Sửa `Code.gs`: **Quản lý bản triển khai → ✏️ → Phiên bản mới**, URL giữ nguyên.
 
 ## Cảnh báo bot chết (một lần, ~1 phút)
