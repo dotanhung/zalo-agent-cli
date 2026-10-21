@@ -6,6 +6,16 @@ import { useData } from '@/lib/use-data'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -46,13 +56,16 @@ export function GroupsPage() {
   const [q, setQ] = useState('')
   const [tab, setTab] = useState<Kind>('group')
   const [newId, setNewId] = useState('')
+  // A thread waiting for its own "allow AI to send here?" confirmation
+  const [grant, setGrant] = useState<Row | null>(null)
 
   useEffect(() => {
     if (config.data) setDraft(draftFrom(config.data))
   }, [config.data])
 
   const original = config.data ? draftFrom(config.data) : null
-  const effSend = (d: Draft) => (d.sendNull ? d.watch : d.send)
+  // Read-only = nothing is sent (the panel saves sendThreads as [])
+  const effSend = (d: Draft) => (d.readOnly ? new Set<string>() : d.sendNull ? d.watch : d.send)
 
   // Rows = watched threads the service knows (with names) + IDs added here but not saved yet
   const rows = useMemo<Row[]>(() => {
@@ -94,13 +107,19 @@ export function GroupsPage() {
   }
 
   const toggleSend = (type: Kind, id: string, on: boolean) => {
-    if (!draft) return
+    if (!draft || draft.readOnly) return
     // First edit of a "same as watched" config: materialise it so the change is explicit
     const send = new Set(draft.sendNull ? draft.watch : draft.send)
     const k = key(type, id)
     if (on) send.add(k)
     else send.delete(k)
     setDraft({ ...draft, send, sendNull: false })
+  }
+
+  // Granting send is never a plain tick: it goes through its own confirmation dialog
+  const requestSend = (t: Row, on: boolean) => {
+    if (on) setGrant(t)
+    else toggleSend(t.type, t.threadId, false)
   }
 
   const toggleWatchAll = (type: Kind, on: boolean) => {
@@ -166,8 +185,7 @@ export function GroupsPage() {
                   'Dịch vụ Zalo sẽ khởi động lại (ngắt 10–30 giây).' +
                   (newSendTargets.length && !draft?.readOnly
                     ? `\n\n⚠️ Bạn đang CHO PHÉP AI GỬI TIN vào ${newSendTargets.length} cuộc trò chuyện mới.`
-                    : '') +
-                  (draft?.readOnly ? '\n\nChế độ Chỉ đọc đang BẬT — AI vẫn chưa gửi được tin dù đã tick “Được gửi”.' : ''),
+                    : ''),
                 action: 'Lưu',
               }}
             >
@@ -237,6 +255,13 @@ export function GroupsPage() {
           {dirty && <Badge variant='secondary'>Có thay đổi chưa lưu</Badge>}
         </div>
 
+        {draft?.readOnly && (
+          <p className='text-sm text-muted-foreground'>
+            Chế độ Chỉ đọc đang BẬT — cột “Được gửi” bị khoá, AI không gửi tin vào nhóm nào. Muốn cho gửi: tắt Chỉ đọc ở trang An
+            toàn, rồi tick từng nhóm và xác nhận.
+          </p>
+        )}
+
         <Card className='py-0'>
           <Table>
             <TableHeader>
@@ -277,8 +302,8 @@ export function GroupsPage() {
                         <TableCell className='text-center'>
                           <Checkbox
                             checked={s}
-                            disabled={!w || (draft ? effSend(draft).has(`${t.type}:*`) : true)}
-                            onCheckedChange={(on) => toggleSend(t.type, t.threadId, on === true)}
+                            disabled={!w || !draft || draft.readOnly || effSend(draft).has(`${t.type}:*`)}
+                            onCheckedChange={(on) => requestSend(t, on === true)}
                             aria-label='Được gửi'
                           />
                         </TableCell>
@@ -296,6 +321,30 @@ export function GroupsPage() {
           </Table>
         </Card>
       </main>
+
+      <AlertDialog open={!!grant} onOpenChange={(open) => !open && setGrant(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cho phép AI GỬI TIN vào cuộc trò chuyện này?</AlertDialogTitle>
+            <AlertDialogDescription className='whitespace-pre-wrap'>
+              {`${grant?.name ?? 'Chưa có tên'} (${grant?.type === 'group' ? 'nhóm' : 'tin riêng'} ${grant?.threadId ?? ''})\n\n` +
+                'AI sẽ gửi được tin Zalo thật vào đây, thay mặt tài khoản này. Mỗi lần gửi đều ghi nhật ký ở trang An toàn.\n' +
+                'Quyền chỉ có hiệu lực sau khi bấm Lưu.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Không cho gửi</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (grant) toggleSend(grant.type, grant.threadId, true)
+                setGrant(null)
+              }}
+            >
+              Cho phép gửi
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

@@ -123,10 +123,13 @@ function validateAccess(input, current = {}) {
     }
     if (typeof input.readOnly !== "boolean") errors.push("readOnly phải là true/false");
     if (errors.length) throw new Error(errors.join("; "));
+    // Read-only = nothing may be sent, so never keep a send list on disk (not even null,
+    // which would mean "every watched thread" the moment read-only is switched off).
+    if (input.readOnly) return { watchThreads: lists.watchThreads, sendThreads: [], readOnly: true };
     // The panel never offers "send to every group": compare the EFFECTIVE send lists
-    // (sendThreads null = same as watchThreads, readOnly = nothing) so a wildcard may only
+    // (sendThreads null = same as watchThreads) so a wildcard may only
     // survive from the existing config, never be introduced through watchThreads + null.
-    const nextSend = input.readOnly ? [] : (lists.sendThreads ?? lists.watchThreads);
+    const nextSend = lists.sendThreads ?? lists.watchThreads;
     const had = new Set(current.readOnly === true ? [] : (current.sendThreads ?? current.watchThreads ?? []));
     const newWild = nextSend.filter((s) => isWildcard(s) && !had.has(s));
     if (newWild.length) throw new Error(`Không cho phép gửi tới mọi nhóm/mọi người: ${newWild.join(", ")}`);
@@ -135,6 +138,11 @@ function validateAccess(input, current = {}) {
         const watched = new Set(lists.watchThreads);
         const notWatched = lists.sendThreads.filter((s) => !watched.has(s) && !watched.has(`${s.split(":")[0]}:*`));
         if (notWatched.length) throw new Error(`Nhóm được gửi phải nằm trong nhóm theo dõi: ${notWatched.join(", ")}`);
+    }
+    // Switching read-only off and granting threads are two separate, confirmed steps:
+    // unlocking may never grant a thread in the same save.
+    if (current.readOnly === true && nextSend.length) {
+        throw new Error("Tắt chỉ đọc trước (không kèm nhóm nào), rồi tick từng nhóm “Được gửi” và xác nhận");
     }
     return { watchThreads: lists.watchThreads, sendThreads: lists.sendThreads, readOnly: input.readOnly };
 }
