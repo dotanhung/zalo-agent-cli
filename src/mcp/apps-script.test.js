@@ -148,7 +148,7 @@ describe("Code.gs doPost", () => {
     it("doGet reports version, sheet and a fingerprint matching SHA-256 of the token", () => {
         const g = s.get();
         assert.equal(g.ok, true);
-        assert.equal(g.version, "5");
+        assert.equal(g.version, "6");
         assert.equal(g.spreadsheet, "ZALO LOG");
         assert.equal(g.tokenSet, true);
         assert.equal(g.tokenFingerprint, createHash("sha256").update("s3cret").digest("hex").slice(0, 8));
@@ -197,6 +197,19 @@ describe("Code.gs doPost", () => {
         assert.equal(s.rows.length, 0);
         assert.equal(s.status[1][1], "Có");
         assert.equal(s.get().lastHeartbeat.zaloConnected, true);
+    });
+
+    it("status sheet shows the last row time and whether the watchdog is on", () => {
+        s.post({ token: "s3cret", heartbeat: { zaloConnected: true } });
+        const label = (k) => s.status.find((r) => r[0] === k)?.[1];
+        assert.equal(label("Tin gần nhất ghi vào Sheet"), "chưa có");
+        assert.match(label("Email cảnh báo (setupWatchdog)"), /CHƯA BẬT/);
+
+        s.post({ token: "s3cret", message: MSG });
+        s.ctx.setupWatchdog();
+        s.post({ token: "s3cret", heartbeat: { zaloConnected: true } });
+        assert.ok(label("Tin gần nhất ghi vào Sheet") instanceof Date);
+        assert.equal(label("Email cảnh báo (setupWatchdog)"), "Đã bật");
     });
 
     it("rejects a heartbeat with a wrong token", () => {

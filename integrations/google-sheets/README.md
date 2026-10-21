@@ -20,7 +20,8 @@ Sửa `Code.gs`: **Quản lý bản triển khai → ✏️ → Phiên bản m�
 ## Cảnh báo bot chết (một lần, ~1 phút)
 
 Dịch vụ gửi **nhịp tim** mỗi 15 phút (`forward.heartbeat`, `"0"` = tắt) vào cùng địa chỉ; trang **Trạng thái**
-trong Sheet hiện lần cuối, Zalo có kết nối không, số lần kết nối lại.
+trong Sheet hiện giờ nhịp tim cuối, Zalo có kết nối không, số lần kết nối lại, giờ tin gần nhất ghi vào Sheet và
+email cảnh báo đã bật chưa (bản 6).
 
 Bật email cảnh báo: trong Apps Script chọn hàm **setupWatchdog** ở thanh trên → **Chạy** → cấp quyền
 (gửi email, chạy theo lịch). Từ đó cứ 10 phút kiểm tra; **quá 30 phút** không có nhịp tim, hoặc Zalo mất kết nối
